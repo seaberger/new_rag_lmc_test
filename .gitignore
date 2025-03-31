@@ -39,4 +39,5 @@ dist/
 
 # Project specific
 /models/
-# /data/
+# /data/git add .gitignore
+git commit -m "Restore .gitignore with proper patterns"
