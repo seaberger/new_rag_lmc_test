@@ -2,9 +2,9 @@
 import os
 import re
 import time
+import json
 import pickle
 import asyncio
-import threading
 from pathlib import Path
 from tqdm import tqdm
 import openai
@@ -53,14 +53,14 @@ openai.api_key = OPENAI_API_KEY
 
 # Define the Pydantic models for metadata extraction
 class PartProductPair(BaseModel):
+    """A pair of part number and product name."""
+
     part_number: str = Field(
-        ...,
-        description="Part number from a table in the datasheet. Must be a 7-digit number or in XX-XXX-XXX format.",
-        pattern=r'^(?:\d{7}|\d{2}-\d{3}-\d{3})$'
+        ..., description="Part number from a table in the datasheet."
     )
     product_name: str = Field(
         ...,
-        description="Product name from a table in the datasheet. Should be an actual product name like 'PowerMax-Pro 150F' or 'LabMax-Pro SSIM', not a general description."
+        description="Product name found in the column header above the part number in the specification table.",
     )
 
 
@@ -73,21 +73,7 @@ class NodeMetadata(BaseModel):
     )
 
 
-# Helper function to run async code in a thread
-def run_in_thread(coro):
-    res = None
 
-    def target():
-        nonlocal res
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-        loop = asyncio.new_event_loop()
-        res = loop.run_until_complete(coro)
-        loop.close()
-
-    t = threading.Thread(target=target)
-    t.start()
-    t.join()
-    return res
 
 
 def load_docs_from_pickle(file_path):
@@ -129,7 +115,7 @@ def save_nodes_to_pickle(nodes, file_path):
     return file_path
 
 
-def generate_context(node_text, max_retries=3):
+async def generate_context(node_text, max_retries=3):
     """
     Generate context for a node using direct OpenAI API.
 
@@ -176,7 +162,7 @@ def generate_context(node_text, max_retries=3):
     return "Failed to generate context after multiple attempts"
 
 
-def enhance_all_nodes(nodes, batch_size=5, sleep_time=1):
+async def enhance_all_nodes(nodes, batch_size=5, sleep_time=1):
     """
     Enhance all nodes by appending context to the content.
 
@@ -201,7 +187,7 @@ def enhance_all_nodes(nodes, batch_size=5, sleep_time=1):
                 del node.metadata["context"]
             else:
                 # Generate new context
-                context = generate_context(node.text)
+                context = await generate_context(node.text)
 
             # Append context to the content with a separator
             node.text = f"{node.text}\n\nContext: {context}"
@@ -232,8 +218,7 @@ def enhance_all_nodes(nodes, batch_size=5, sleep_time=1):
 
 def process_pairs_metadata(nodes):
     """
-    Process nodes to properly format part number and product name pairs,
-    with the correct metadata structure.
+    Process nodes to properly format product identifiers with the correct metadata structure.
 
     Args:
         nodes: List of nodes to process
@@ -241,32 +226,16 @@ def process_pairs_metadata(nodes):
     Returns:
         The processed nodes
     """
-    print(f"Processing {len(nodes)} nodes to format part-product pairs...")
+    print(f"Processing {len(nodes)} nodes to format product identifiers...")
 
-    # Compile regex pattern for validation
-    part_number_pattern = re.compile(r'^(?:\d{7}|\d{2}-\d{3}-\d{3})$')
-
-    # Known product prefixes to validate against
-    valid_prefixes = {
-        'powermax', 'labmax', 'pm', 'lm', 'op', 'beammaster',
-        'fieldmax', 'energymax'
-    }
-
-    def is_valid_product_name(name):
-        # Convert to lowercase for comparison
-        name_lower = name.lower()
-        # Check if it starts with any valid prefix
-        return any(name_lower.startswith(prefix) for prefix in valid_prefixes)
+    # Compile regex pattern for part number validation
+    part_number_pattern = re.compile(r"^(?:\d{7}|\d{2}-\d{3}-\d{3})$")
 
     valid_pairs_count = 0
     invalid_pairs_count = 0
 
     for node in nodes:
-        # Process pairs field if it exists
         if "pairs" in node.metadata:
-            # Create more accessible part_numbers and product_names arrays
-            part_numbers = []
-            product_names = []
             valid_pairs = []
 
             for pair in node.metadata["pairs"]:
@@ -275,39 +244,26 @@ def process_pairs_metadata(nodes):
                     and "part_number" in pair
                     and "product_name" in pair
                 ):
-                    part_number = pair["part_number"]
-                    product_name = pair["product_name"]
+                    part_num = str(pair["part_number"])
+                    prod_name = str(pair["product_name"])
 
-                    # Validate part number format
-                    if part_number_pattern.match(part_number):
-                        # Validate product name
-                        if is_valid_product_name(product_name):
-                            part_numbers.append(part_number)
-                            product_names.append(product_name)
-                            valid_pairs.append(pair)
-                            valid_pairs_count += 1
-                        else:
-                            invalid_pairs_count += 1
-                            print(f"Invalid product name format: {product_name}")
+                    if part_number_pattern.match(part_num):
+                        valid_pairs.append(
+                            {"part_number": part_num, "product_name": prod_name}
+                        )
+                        valid_pairs_count += 1
                     else:
                         invalid_pairs_count += 1
-                        print(f"Invalid part number format: {part_number}")
+                        print(f"Invalid part number format: {part_num}")
 
             if valid_pairs:
-                # Add the arrays to metadata
-                node.metadata["part_numbers"] = part_numbers
-                node.metadata["product_names"] = product_names
-                node.metadata["pairs_count"] = len(valid_pairs)
-                node.metadata["product_part_pairs"] = valid_pairs
+                node.metadata["pairs"] = valid_pairs
             else:
-                # If no valid pairs, remove all related metadata
-                node.metadata.pop("part_numbers", None)
-                node.metadata.pop("product_names", None)
-                node.metadata.pop("pairs_count", None)
-                node.metadata.pop("product_part_pairs", None)
-
-            # Always remove the original pairs field
-            del node.metadata["pairs"]
+                del node.metadata["pairs"]
+                # Clean up any old metadata fields
+                node.metadata.pop("identifiers", None)
+                node.metadata.pop("identifiers_count", None)
+                node.metadata.pop("product_identifiers", None)
 
     print(f"Successfully processed metadata for {len(nodes)} nodes")
     print(f"Valid pairs found: {valid_pairs_count}")
@@ -322,39 +278,129 @@ def initialize_extractor():
     ----------------
     {context_str}
     ----------------
-    Look for tables in this content that contain product specifications, ordering information, or model numbers.
-    From these tables ONLY, extract part numbers and their corresponding product names as a {class_name} object.
+    Your task is to find ALL part numbers and their associated product names in this content.
+    Be thorough - check every specification table within the datasheets.
+
+    FIELD DEFINITIONS:
+    1. part_number field - MUST ONLY contain:
+       - EXACTLY 7 digits (e.g., 1299161)
+       - OR XX-XXXX-XXX format (e.g., 33-3336-000)
+       - NEVER put model names like 'FieldMaxII-TOP' or 'PM10K+' here
+       - NEVER put descriptive text here
+
+    2. product_name field - MUST contain:
+       - The model name from the column header (e.g., 'FieldMaxII-TOP', 'PM10K+')
+       - This is where model names and series names belong
+
+    IMPORTANT: Handle subscripts carefully!
+    - Many part numbers have subscript notes at the end
+    - If you see an 8 or 9 digit number, it's likely a 7-digit part number with a subscript
+    - Example: If you see "10979011", the real part number is "1097901" (the 1 is a subscript)
+    - ALWAYS check if longer numbers are actually 7-digit part numbers with subscripts
+
+    WHERE TO LOOK:
+    Part numbers appear in specification tables:
+       - As part numbers at the bottom of columns
+       - In cells labeled "Part Number" or "P/N"
+       The product name will be in the column header above
+
+    EXTRACTION PROCESS:
+    1. SCAN for valid part numbers first:
+       - Look for 7-digit numbers or XX-XXX-XXX format
+       - Remember to check for subscripts and ignore them
+       - ONLY include numbers that match these formats
+
+    2. For each valid part number:
+       - Find its product name in the column header above
+       - Skip if you can't find a clear product name
     
-    Rules for extraction:
-    1. ONLY extract from tables, not from regular text
-    2. Part numbers must be either:
-       - 7 digits (e.g., 1234567)
-       - XX-XXX-XXX format (e.g., 12-345-678)
-    3. Product names must be actual product names like:
-       - PowerMax-Pro 150F
-       - LabMax-Pro SSIM
-       - PM10K-PLUS
-       Do NOT include general descriptions or specifications
-    4. If no valid tables with part number/product pairs are found, return an empty list
-    5. Ignore calibration numbers, standards (like ISO), and general specifications
-    
+    3. Create pairs where you have both:
+       - A valid part number (7 digits or XX-XXXX-XXX)
+       - AND its corresponding product name
+
+    Example formats you might see:
+
+    Format 1 (Table with subscript):
+    | PM10             | PM30 |
+    |------------------|--------------------|
+    | specs...         | specs...          |
+    | 1097901          | 1098314  |
+
     The output format should be:
     [
-        {"part_number": "1234567", "product_name": "PowerMax-Pro 150F"},
-        {"part_number": "12-345-678", "product_name": "LabMax-Pro SSIM"}
+        {{
+            "part_number": "1097901",
+            "product_name": "PM10"
+        }},
+        {{
+            "part_number": "1098314",
+            "product_name": "PM30"
+        }}
     ]
-    
-    Ensure that the output is a valid JSON format and matches the required patterns.
+
+    CRITICAL REMINDERS:
+    - Find ALL part numbers - be exhaustive in your search
+    - If no valid pairs are found, return an empty list: []
     """
 
+    # Check for OpenAI API key
+    print("Checking OpenAI configuration...")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable is not set")
+
     # Initialize the OpenAI program
-    llm = OpenAI(model="gpt-4o", api_key=OPENAI_API_KEY)
-    Settings.llm = llm
+    print("Initializing OpenAI program...")
+    try:
+        llm = OpenAI(
+            model="gpt-4o",
+            api_key=api_key,
+            temperature=0.0,  # Be deterministic for extraction
+            max_tokens=1000,
+        )
+        Settings.llm = llm
+        print("Successfully initialized OpenAI LLM")
+    except Exception as e:
+        print(f"Error initializing OpenAI: {str(e)}")
+        raise
+
+    def is_valid_part_number(part_num: str) -> bool:
+        """Check if a string matches valid part number patterns."""
+        return bool(re.match(r"^(?:\d{7}|\d{2}-\d{3}-\d{3})$", str(part_num)))
+
+    def preprocess_response(response_str: str) -> dict:
+        """Pre-process the LLM response to ensure model numbers are handled correctly."""
+        try:
+            data = json.loads(response_str)
+            if isinstance(data, list) and len(data) > 0:
+                filtered_pairs = []
+                print("\nPreprocessing pairs:")
+                for pair in data:
+                    part_num = str(pair.get("part_number", ""))
+                    prod_name = str(pair.get("product_name", ""))
+
+                    if is_valid_part_number(part_num):
+                        print(f"  Valid: '{part_num}' -> '{prod_name}'")
+                        filtered_pairs.append(pair)
+                    else:
+                        print(
+                            f"  Invalid part number format: '{part_num}' (must be 7 digits or XX-XXX-XXX)"
+                        )
+
+                print(
+                    f"\nFound {len(filtered_pairs)} valid pairs out of {len(data)} total"
+                )
+                return {"pairs": filtered_pairs}
+            return {"pairs": []}
+        except Exception as e:
+            print(f"Error preprocessing response: {str(e)}")
+            return {"pairs": []}
 
     openai_program = OpenAIPydanticProgram.from_defaults(
         output_cls=NodeMetadata,
         prompt_template_str="{input}",
         extract_template_str=EXTRACT_TEMPLATE_STR,
+        response_preprocessor=preprocess_response,
     )
 
     program_extractor = PydanticProgramExtractor(
@@ -364,7 +410,7 @@ def initialize_extractor():
     return program_extractor
 
 
-def create_origin_nodes(input_file_path):
+async def create_origin_nodes(input_file_path):
     """
     Create origin nodes from the input pickle file using the ingestion pipeline.
 
@@ -380,21 +426,58 @@ def create_origin_nodes(input_file_path):
     # Initialize LLM and program extractor
     program_extractor = initialize_extractor()
 
-    # Initialize node parser
-    node_parser = SentenceSplitter(chunk_size=1024, chunk_overlap=128)
+    # Initialize node parser with smaller chunk size for better table handling
+    node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=64)
 
     # Create ingestion pipeline
     pipeline = IngestionPipeline(transformations=[node_parser, program_extractor])
 
-    # Run the pipeline
+    # Run the pipeline with error handling
     print("Running ingestion pipeline to create origin nodes...")
-    origin_nodes = run_in_thread(pipeline.arun(documents=loaded_docs))
-    print(f"Created {len(origin_nodes)} origin nodes")
+    try:
+        # Print document info for debugging
+        if loaded_docs:
+            print(f"\nProcessing {len(loaded_docs)} documents")
+            for i, doc in enumerate(loaded_docs[:2]):  # Show first 2 docs
+                print(f"\nDocument {i + 1}:")
+                print("-" * 40)
+                print(f"Text length: {len(doc.text)}")
+                print("Sample content:")
+                print(doc.text[:500] + "...")
+                print("-" * 40)
 
-    return origin_nodes
+        print("\nStarting pipeline run...")
+        origin_nodes = await pipeline.arun(documents=loaded_docs)
+        print("Pipeline run completed")
+
+        if origin_nodes:
+            print(f"Created {len(origin_nodes)} origin nodes")
+            # Print sample nodes
+            for i, node in enumerate(origin_nodes[:2]):  # Show first 2 nodes
+                print(f"\nNode {i + 1}:")
+                print("-" * 40)
+                print(f"Text length: {len(node.text)}")
+                print(f"Metadata: {node.metadata}")
+                print("Sample content:")
+                print(node.text[:500] + "...")
+                print("-" * 40)
+            return origin_nodes
+        else:
+            print(
+                "No valid nodes were created. Check the extraction rules and validation."
+            )
+            return []
+    except Exception as e:
+        print(f"Error during node creation: {str(e)}")
+        print("Stack trace:")
+        import traceback
+
+        traceback.print_exc()
+        print("\nReturning empty node list to allow pipeline to continue")
+        return []
 
 
-def main(
+async def main(
     input_file="./parsed_lmc_docs.pkl",
     output_file="./enhanced_laser_nodes.pkl",
 ):
@@ -410,13 +493,13 @@ def main(
     print(f"Output file: {output_file}")
 
     # Step 1: Create origin nodes
-    origin_nodes = create_origin_nodes(input_file)
+    origin_nodes = await create_origin_nodes(input_file)
 
     # Step 2: Process pairs metadata
     processed_nodes = process_pairs_metadata(origin_nodes)
 
     # Step 3: Enhance nodes with context
-    enhanced_nodes = enhance_all_nodes(processed_nodes)
+    enhanced_nodes = await enhance_all_nodes(processed_nodes)
 
     # Step 4: Save the enhanced nodes
     save_nodes_to_pickle(enhanced_nodes, output_file)
@@ -442,4 +525,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(input_file=args.input, output_file=args.output)
+    # Run the async main function
+    asyncio.run(main(input_file=args.input, output_file=args.output))
