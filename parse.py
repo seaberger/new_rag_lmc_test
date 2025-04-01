@@ -7,6 +7,7 @@ import pickle
 import concurrent.futures
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+import logging
 
 from llama_cloud_services import LlamaParse
 from llama_index.core import Document
@@ -40,19 +41,18 @@ CORRECT (all cells filled):
 |Wavelength Range (µm)|0.19 to 12|0.19 to 12|0.19 to 12|0.19 to 12|
 |Active Area Diameter (mm)|50|50|25|10|
 
-## ADDITIONAL INSTRUCTIONS:
+For each datasheet table, identify pairs of model names and part numbers and store them in the document Metadata under the key 'pairs'. 
+To structure the metadata with part number and model name pairs, you can use a list of tuples, where each tuple contains a model name and its corresponding part number. Here's an example of how it can be structured in the metadata:
 
-1. Rename "Mechanical Specifications" to "Mechanical Dimensions"
-2. Leave drawing dimensions as text, not in table format
-3. Ignore footnotes with underscore numbers in part numbers
-
-## VALIDATION STEP:
-After completing the table, verify that:
-1. Every cell contains a value (no empty cells)
-2. Values that span multiple columns are copied to each relevant cell
-3. All part numbers are properly formatted without superscripts
-
-Please confirm you've followed these instructions with the statement: "All cells filled and formatted according to instructions."
+'''
+Metadata: {
+    'pairs': [
+        ('PM2', '1174264'),
+        ('PM10', '1174262'),
+        ('PM30', '1174257')
+    ]
+}
+```
 """
 
 
@@ -65,12 +65,12 @@ def create_parser() -> LlamaParse:
 
     return LlamaParse(
         result_type="markdown",
-        verbose=True,
+        auto_mode=True,
+        auto_mode_trigger_on_image_in_page=True,
+        auto_mode_trigger_on_table_in_page=True,
         invalidate_cache=True,
         do_not_cache=True,
-        use_vendor_multimodal_model=True,
-        vendor_multimodal_model_name="openai-gpt4o",
-        vendor_multimodal_api_key=api_key,
+        # vendor_multimodal_api_key=api_key,
         user_prompt=DATASHEET_PARSE_PROMPT,
     )
 
@@ -96,6 +96,7 @@ async def process_documents_parallel(
         Dictionary mapping file paths to parsed document lists
     """
     results = {}
+    logging.basicConfig(level=logging.INFO)
 
     # Define the worker function that will process each document
     async def process_single_doc(fname: Path):
@@ -113,7 +114,7 @@ async def process_documents_parallel(
 
         for attempt in range(max_retries):
             try:
-                print(
+                logging.info(
                     f"Attempt {attempt + 1} parsing {fname.name} (timeout: {timeout_seconds}s)..."
                 )
                 start_time = time.time()
@@ -124,16 +125,21 @@ async def process_documents_parallel(
 
                 # If we got here and doc has content, parsing worked
                 if doc and len(doc) > 0:
-                    print(f"Successfully parsed {fname.name} in {elapsed:.2f} seconds")
+                    logging.info(
+                        f"Successfully parsed {fname.name} in {elapsed:.2f} seconds"
+                    )
+                    logging.info(f"Content length: {len(doc)}")
                     return doc
                 else:
-                    print(f"No content returned on attempt {attempt + 1}")
+                    logging.info(f"No content returned on attempt {attempt + 1}")
             except Exception as e:
-                print(f"Error on attempt {attempt + 1} for {fname.name}: {str(e)}")
+                logging.error(
+                    f"Error on attempt {attempt + 1} for {fname.name}: {str(e)}"
+                )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)  # Brief pause before retry
 
-        print(f"Failed to parse {fname.name} after {max_retries} attempts")
+        logging.error(f"Failed to parse {fname.name} after {max_retries} attempts")
         return None
 
     # Process documents with asyncio.gather with concurrency limit
@@ -150,9 +156,9 @@ async def process_documents_parallel(
     for fname, doc_result in results_list:
         if doc_result:
             results[fname] = doc_result
-            print(f"✅ {fname.name}: {len(doc_result)} sections")
+            logging.info(f"✅ {fname.name}: {len(doc_result)} sections")
         else:
-            print(f"❌ {fname.name}: Failed to parse")
+            logging.info(f"❌ {fname.name}: Failed to parse")
 
     return results
 
@@ -258,21 +264,24 @@ if __name__ == "__main__":
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Parse PDF documents using LlamaParse")
     parser.add_argument(
-        "--input-dir",
+        "--input_dir",
         "-i",
         type=str,
         default="data",
         help="Directory containing PDF files to parse (default: data)",
     )
     parser.add_argument(
-        "--output-file",
-        "-o",
-        type=str,
-        default="parsed_docs.pkl",
-        help="Path to save the parsed documents (default: parsed_docs.pkl)",
+        "--input_file", type=str, help="Path to a single PDF file to parse"
     )
     parser.add_argument(
-        "--max-workers",
+        "--output_file",
+        "-o",
+        type=str,
+        default="test_parsed_doc.pkl",
+        help="Path to save the parsed documents (default: test_parsed_doc.pkl)",
+    )
+    parser.add_argument(
+        "--max_workers",
         "-w",
         type=int,
         default=8,
@@ -288,12 +297,33 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Run the main function
-    asyncio.run(
-        main(
-            input_dir=args.input_dir,
-            output_file=args.output_file,
+    # If an input_file is provided, process only that file
+    if args.input_file:
+        file_list = [Path(args.input_file)]
+    else:
+        # Otherwise, process all files in the input directory
+        file_list = list(Path(args.input_dir).rglob("*.pdf"))
+
+    # Create parser template
+    parser_template = create_parser()
+
+    # Process documents in parallel
+    results = asyncio.run(
+        process_documents_parallel(
+            file_list,
+            parser_template,
             max_workers=args.max_workers,
-            timeout=args.timeout,
+            timeout_seconds=args.timeout,
         )
     )
+
+    # Print summary
+    print(f"\nSuccessfully processed {len(results)} out of {len(file_list)} documents")
+    for fname, doc in results.items():
+        print(f"- {fname.name}: {len(doc)} sections")
+
+    # Convert to standard documents
+    standard_docs = convert_to_standard_docs(results)
+
+    # Save to pickle file
+    save_docs_to_pickle(standard_docs, args.output_file)
