@@ -1,6 +1,7 @@
 # chat_engine.py
 
 import os
+import re
 import pickle
 import sqlite3
 from typing import List
@@ -33,18 +34,97 @@ class SQLiteFTSRetriever:
     def retrieve(self, query_str: str) -> List[NodeWithScore]:
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
-        escaped_query = f'"{query_str}"'
-        c.execute(
-            f"""
-            SELECT nodes.node_id, nodes.content, nodes.metadata, nodes_fts.rank
-            FROM nodes_fts 
-            JOIN nodes ON nodes_fts.rowid = nodes.rowid
-            WHERE nodes_fts MATCH ? 
-            ORDER BY nodes_fts.rank
-            LIMIT {self.top_k}
-            """,
-            (escaped_query,),
-        )
+        
+        # Analyze the query
+        analysis = analyze_query(query_str)
+        
+        # Build the FTS query based on query type
+        if analysis['query_type'] == 'part_number':
+            # For part numbers, use exact matching and metadata
+            part_numbers = analysis['detected_part_numbers']
+            if part_numbers:
+                # Create a query that looks for exact part numbers in both content and metadata
+                query_parts = []
+                for part in part_numbers:
+                    # Look for exact matches with word boundaries
+                    query_parts.append(f'"{part}"')
+                
+                fts_query = ' OR '.join(query_parts)
+                
+                # Execute query with exact matching
+                c.execute(
+                    f"""
+                    SELECT nodes.node_id, nodes.content, nodes.metadata, nodes_fts.rank
+                    FROM nodes_fts 
+                    JOIN nodes ON nodes_fts.rowid = nodes.rowid
+                    WHERE nodes_fts MATCH ? 
+                    ORDER BY nodes_fts.rank
+                    LIMIT {self.top_k}
+                    """,
+                    (fts_query,),
+                )
+            else:
+                # Fallback to normal search if no part numbers detected
+                c.execute(
+                    f"""
+                    SELECT nodes.node_id, nodes.content, nodes.metadata, nodes_fts.rank
+                    FROM nodes_fts 
+                    JOIN nodes ON nodes_fts.rowid = nodes.rowid
+                    WHERE nodes_fts MATCH ? 
+                    ORDER BY nodes_fts.rank
+                    LIMIT {self.top_k}
+                    """,
+                    (f'"{query_str}"',),
+                )
+        
+        elif analysis['query_type'] == 'model':
+            # For model names, use a combination of exact and fuzzy matching
+            # This helps catch variations in model names (PM10 vs PowerMax 10)
+            query_terms = query_str.lower().split()
+            query_parts = []
+            
+            # Add exact phrase matching
+            query_parts.append(f'"{query_str}"')
+            
+            # Add individual term matching with word boundaries
+            for term in query_terms:
+                if term in ['pm', 'op', 'lm']:
+                    # For common prefixes, also look for expanded forms
+                    if term == 'pm':
+                        query_parts.append('(powermax OR "power max")')
+                    elif term == 'op':
+                        query_parts.append('(optical OR op)')
+                    elif term == 'lm':
+                        query_parts.append('(labmax OR "lab max")')
+                query_parts.append(f'"{term}"')
+            
+            fts_query = ' OR '.join(query_parts)
+            
+            c.execute(
+                f"""
+                SELECT nodes.node_id, nodes.content, nodes.metadata, nodes_fts.rank
+                FROM nodes_fts 
+                JOIN nodes ON nodes_fts.rowid = nodes.rowid
+                WHERE nodes_fts MATCH ? 
+                ORDER BY nodes_fts.rank
+                LIMIT {self.top_k}
+                """,
+                (fts_query,),
+            )
+        
+        else:
+            # For general queries, use standard FTS matching
+            c.execute(
+                f"""
+                SELECT nodes.node_id, nodes.content, nodes.metadata, nodes_fts.rank
+                FROM nodes_fts 
+                JOIN nodes ON nodes_fts.rowid = nodes.rowid
+                WHERE nodes_fts MATCH ? 
+                ORDER BY nodes_fts.rank
+                LIMIT {self.top_k}
+                """,
+                (f'"{query_str}"',),
+            )
 
         results = []
         for node_id, content, metadata_blob, rank in c.fetchall():
@@ -52,11 +132,53 @@ class SQLiteFTSRetriever:
 
             metadata = json.loads(metadata_blob)
             node = TextNode(text=content, metadata=metadata, id_=node_id)
+            
+            # Base score from rank
             score = 1.0 / (1.0 + float(rank))
+            
+            # Boost score based on metadata matches
+            if analysis['query_type'] == 'part_number' and 'part_numbers' in metadata:
+                for part_number in analysis['detected_part_numbers']:
+                    if part_number in metadata['part_numbers']:
+                        score *= 2.0  # Double score for metadata matches
+            
+            elif analysis['query_type'] == 'model' and 'product_names' in metadata:
+                if any(model.lower() in query_str.lower() for model in metadata['product_names']):
+                    score *= 1.5  # 50% boost for model name matches
+            
             results.append(NodeWithScore(node=node, score=score))
 
         conn.close()
         return results
+
+
+def analyze_query(query: str) -> dict:
+    """Analyze query to detect if it's looking for specific part numbers or model names.
+    
+    Args:
+        query: The query string
+        
+    Returns:
+        Dict with query analysis results
+    """
+    # Common patterns in part numbers and model names
+    part_number_pattern = r'\d{7}|\d{2}-\d{3}-\d{3}'  # Matches 7-digit or XX-XXX-XXX format
+    model_keywords = ['model', 'pm', 'op', 'lm', 'powermax', 'labmax', 'fieldmax']
+    
+    analysis = {
+        'has_part_number': bool(re.search(part_number_pattern, query.lower())),
+        'has_model_reference': any(keyword in query.lower() for keyword in model_keywords),
+        'detected_part_numbers': re.findall(part_number_pattern, query),
+        'query_type': 'general'
+    }
+    
+    # Determine query type
+    if analysis['has_part_number']:
+        analysis['query_type'] = 'part_number'
+    elif analysis['has_model_reference']:
+        analysis['query_type'] = 'model'
+    
+    return analysis
 
 
 # Hybrid Retriever with Reranking
@@ -73,13 +195,28 @@ class HybridRetrieverWithReranking(BaseRetriever):
         self.vector_retriever = vector_retriever
         self.keyword_retriever = keyword_retriever
         self.reranker = reranker
-        self.vector_weight = vector_weight
-        self.keyword_weight = keyword_weight
+        self.base_vector_weight = vector_weight
+        self.base_keyword_weight = keyword_weight
         self.initial_top_k = initial_top_k
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        """Retrieve nodes given query."""
         query_str = query_bundle.query_str
+        
+        # Analyze query to determine weights and boost factors
+        analysis = analyze_query(query_str)
+        
+        # Adjust weights based on query type
+        if analysis['query_type'] == 'part_number':
+            vector_weight = self.base_vector_weight * 0.5  # Reduce vector weight
+            keyword_weight = self.base_keyword_weight * 2.0  # Increase keyword weight
+        elif analysis['query_type'] == 'model':
+            vector_weight = self.base_vector_weight * 0.8
+            keyword_weight = self.base_keyword_weight * 1.5
+        else:
+            vector_weight = self.base_vector_weight
+            keyword_weight = self.base_keyword_weight
 
         # Get results from both retrievers
         vector_results = self.vector_retriever.retrieve(query_str)
@@ -87,18 +224,33 @@ class HybridRetrieverWithReranking(BaseRetriever):
 
         # Combine scores
         node_scores = {}
+        
+        # Process vector results
         for i, result in enumerate(vector_results):
             node_id = result.node.node_id
-            score = self.vector_weight * (1.0 / (i + 1))
+            score = vector_weight * (1.0 / (i + 1))
             node_scores[node_id] = {"node": result.node, "score": score}
 
+        # Process keyword results and apply boosting
         for i, result in enumerate(keyword_results):
             node_id = result.node.node_id
-            keyword_score = self.keyword_weight * (1.0 / (i + 1))
+            score = keyword_weight * (1.0 / (i + 1))
+            
+            # Apply boosting for exact part number matches
+            if analysis['query_type'] == 'part_number' and 'part_numbers' in result.node.metadata:
+                for part_number in analysis['detected_part_numbers']:
+                    if part_number in result.node.metadata['part_numbers']:
+                        score *= 2.0  # Double the score for exact part number match
+            
+            # Apply boosting for model name matches
+            if analysis['query_type'] == 'model' and 'product_names' in result.node.metadata:
+                if any(model.lower() in query_str.lower() for model in result.node.metadata['product_names']):
+                    score *= 1.5  # Boost score by 50% for model name match
+
             if node_id in node_scores:
-                node_scores[node_id]["score"] += keyword_score
+                node_scores[node_id]["score"] += score
             else:
-                node_scores[node_id] = {"node": result.node, "score": keyword_score}
+                node_scores[node_id] = {"node": result.node, "score": score}
 
         # Sort by score
         sorted_results = sorted(
@@ -112,9 +264,15 @@ class HybridRetrieverWithReranking(BaseRetriever):
         ]
 
         # Apply reranking
-        reranked_nodes = self.reranker.postprocess_nodes(initial_results, query_bundle)
-
-        return reranked_nodes
+        if self.reranker is not None:
+            try:
+                reranked_nodes = self.reranker.postprocess_nodes(initial_results, query_bundle)
+                return reranked_nodes
+            except Exception as e:
+                print(f"Error during reranking: {e}")
+                return initial_results
+        
+        return initial_results
 
 
 def create_or_load_sqlite_db(nodes_path, db_path):
