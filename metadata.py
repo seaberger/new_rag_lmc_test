@@ -1,5 +1,6 @@
 # metadata.py
 import os
+import re
 import time
 import pickle
 import asyncio
@@ -53,10 +54,13 @@ openai.api_key = OPENAI_API_KEY
 # Define the Pydantic models for metadata extraction
 class PartProductPair(BaseModel):
     part_number: str = Field(
-        ..., description="Unique part number from first column of table"
+        ...,
+        description="Part number from a table in the datasheet. Must be a 7-digit number or in XX-XXX-XXX format.",
+        pattern=r'^(?:\d{7}|\d{2}-\d{3}-\d{3})$'
     )
     product_name: str = Field(
-        ..., description="Unique product name from second column of table"
+        ...,
+        description="Product name from a table in the datasheet. Should be an actual product name like 'PowerMax-Pro 150F' or 'LabMax-Pro SSIM', not a general description."
     )
 
 
@@ -239,12 +243,31 @@ def process_pairs_metadata(nodes):
     """
     print(f"Processing {len(nodes)} nodes to format part-product pairs...")
 
+    # Compile regex pattern for validation
+    part_number_pattern = re.compile(r'^(?:\d{7}|\d{2}-\d{3}-\d{3})$')
+
+    # Known product prefixes to validate against
+    valid_prefixes = {
+        'powermax', 'labmax', 'pm', 'lm', 'op', 'beammaster',
+        'fieldmax', 'energymax'
+    }
+
+    def is_valid_product_name(name):
+        # Convert to lowercase for comparison
+        name_lower = name.lower()
+        # Check if it starts with any valid prefix
+        return any(name_lower.startswith(prefix) for prefix in valid_prefixes)
+
+    valid_pairs_count = 0
+    invalid_pairs_count = 0
+
     for node in nodes:
         # Process pairs field if it exists
         if "pairs" in node.metadata:
             # Create more accessible part_numbers and product_names arrays
             part_numbers = []
             product_names = []
+            valid_pairs = []
 
             for pair in node.metadata["pairs"]:
                 if (
@@ -252,21 +275,43 @@ def process_pairs_metadata(nodes):
                     and "part_number" in pair
                     and "product_name" in pair
                 ):
-                    part_numbers.append(pair["part_number"])
-                    product_names.append(pair["product_name"])
+                    part_number = pair["part_number"]
+                    product_name = pair["product_name"]
 
-            # Add the arrays to metadata
-            node.metadata["part_numbers"] = part_numbers
-            node.metadata["product_names"] = product_names
+                    # Validate part number format
+                    if part_number_pattern.match(part_number):
+                        # Validate product name
+                        if is_valid_product_name(product_name):
+                            part_numbers.append(part_number)
+                            product_names.append(product_name)
+                            valid_pairs.append(pair)
+                            valid_pairs_count += 1
+                        else:
+                            invalid_pairs_count += 1
+                            print(f"Invalid product name format: {product_name}")
+                    else:
+                        invalid_pairs_count += 1
+                        print(f"Invalid part number format: {part_number}")
 
-            # Add count
-            node.metadata["pairs_count"] = len(part_numbers)
+            if valid_pairs:
+                # Add the arrays to metadata
+                node.metadata["part_numbers"] = part_numbers
+                node.metadata["product_names"] = product_names
+                node.metadata["pairs_count"] = len(valid_pairs)
+                node.metadata["product_part_pairs"] = valid_pairs
+            else:
+                # If no valid pairs, remove all related metadata
+                node.metadata.pop("part_numbers", None)
+                node.metadata.pop("product_names", None)
+                node.metadata.pop("pairs_count", None)
+                node.metadata.pop("product_part_pairs", None)
 
-            # Rename the original pairs field to product_part_pairs
-            node.metadata["product_part_pairs"] = node.metadata["pairs"]
+            # Always remove the original pairs field
             del node.metadata["pairs"]
 
     print(f"Successfully processed metadata for {len(nodes)} nodes")
+    print(f"Valid pairs found: {valid_pairs_count}")
+    print(f"Invalid pairs rejected: {invalid_pairs_count}")
     return nodes
 
 
@@ -277,15 +322,29 @@ def initialize_extractor():
     ----------------
     {context_str}
     ----------------
-    Extract the following information as a {class_name} object:
-    - Pairs: List of dictionaries, each containing a part number and its corresponding product name.
-
+    Look for tables in this content that contain product specifications, ordering information, or model numbers.
+    From these tables ONLY, extract part numbers and their corresponding product names as a {class_name} object.
+    
+    Rules for extraction:
+    1. ONLY extract from tables, not from regular text
+    2. Part numbers must be either:
+       - 7 digits (e.g., 1234567)
+       - XX-XXX-XXX format (e.g., 12-345-678)
+    3. Product names must be actual product names like:
+       - PowerMax-Pro 150F
+       - LabMax-Pro SSIM
+       - PM10K-PLUS
+       Do NOT include general descriptions or specifications
+    4. If no valid tables with part number/product pairs are found, return an empty list
+    5. Ignore calibration numbers, standards (like ISO), and general specifications
+    
     The output format should be:
     [
-        {"part_number": "1224020", "product_name": "BeamMaster-USB System BM-7 (InGaAs 5mm)"},
-        {"part_number": "1230323", "product_name": "PowerMax-RS PM2X"}
+        {"part_number": "1234567", "product_name": "PowerMax-Pro 150F"},
+        {"part_number": "12-345-678", "product_name": "LabMax-Pro SSIM"}
     ]
-    Ensure that the output is a valid JSON format. Avoid invalid control characters in the output.
+    
+    Ensure that the output is a valid JSON format and matches the required patterns.
     """
 
     # Initialize the OpenAI program
