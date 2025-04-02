@@ -163,36 +163,7 @@ async def process_documents_parallel(
     return results
 
 
-def convert_to_standard_docs(docs_dict: Dict[Path, List[Document]]) -> List[Document]:
-    """
-    Convert parser output to standard Document objects with enhanced metadata.
-
-    Args:
-        docs_dict: Dictionary with filenames as keys and document lists as values
-
-    Returns:
-        List of standardized Document objects
-    """
-    standard_docs = []
-    for file_path, doc_list in docs_dict.items():
-        file_name = file_path.name  # Get just the filename
-        total_docs = len(doc_list)
-
-        for i, doc in enumerate(doc_list, 1):
-            # Create standard Document object with enhanced metadata
-            standard_doc = Document(
-                text=doc.text_resource.text,
-                metadata={
-                    "source": str(file_path),
-                    "file_name": file_name,
-                    "doc_num": i,
-                    "total_docs": total_docs,
-                    "id": doc.id_ if hasattr(doc, "id_") else None,
-                },
-            )
-            standard_docs.append(standard_doc)
-
-    return standard_docs
+# Function removed as it was redundant and potentially discarding valuable metadata from LlamaParse
 
 
 def save_docs_to_pickle(docs: List[Document], file_path: str = "parsed_docs.pkl"):
@@ -253,11 +224,29 @@ async def main(
     for fname, doc in results.items():
         print(f"- {fname.name}: {len(doc)} sections")
 
-    # Convert to standard documents
-    standard_docs = convert_to_standard_docs(results)
+    # Process results and add standardized metadata
+    all_docs = []
+    for file_path, doc_list in results.items():
+        if doc_list:
+            file_name = file_path.name
+            total_docs_in_file = len(doc_list)
+            
+            for i, doc in enumerate(doc_list, 1):
+                # Ensure metadata exists
+                if not hasattr(doc, 'metadata') or doc.metadata is None:
+                    doc.metadata = {}
+                    
+                # Add/update standardized metadata while preserving original metadata
+                doc.metadata['source'] = str(file_path)
+                doc.metadata['file_name'] = file_name
+                doc.metadata['doc_num'] = i
+                doc.metadata['total_docs_in_file'] = total_docs_in_file
+                
+                # Add to the collection
+                all_docs.append(doc)
 
     # Save to pickle file
-    save_docs_to_pickle(standard_docs, output_file)
+    save_docs_to_pickle(all_docs, output_file)
 
 
 if __name__ == "__main__":
@@ -322,8 +311,26 @@ if __name__ == "__main__":
     for fname, doc in results.items():
         print(f"- {fname.name}: {len(doc)} sections")
 
-    # Convert to standard documents
-    standard_docs = convert_to_standard_docs(results)
+    # Process results and add standardized metadata
+    all_docs = []
+    for file_path, doc_list in results.items():
+        if doc_list:
+            file_name = file_path.name
+            total_docs_in_file = len(doc_list)
+            
+            for i, doc in enumerate(doc_list, 1):
+                # Ensure metadata exists
+                if not hasattr(doc, 'metadata') or doc.metadata is None:
+                    doc.metadata = {}
+                    
+                # Add/update standardized metadata while preserving original metadata
+                doc.metadata['source'] = str(file_path)
+                doc.metadata['file_name'] = file_name
+                doc.metadata['doc_num'] = i
+                doc.metadata['total_docs_in_file'] = total_docs_in_file
+                
+                # Add to the collection
+                all_docs.append(doc)
 
     # Save to pickle file
-    save_docs_to_pickle(standard_docs, args.output_file)
+    save_docs_to_pickle(all_docs, args.output_file)
