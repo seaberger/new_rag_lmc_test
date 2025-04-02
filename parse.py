@@ -17,7 +17,11 @@ DATASHEET_PARSE_PROMPT = """# CRITICAL PARSING INSTRUCTIONS - FOLLOW EXACTLY
 
 These documents contain technical information about laser power meters, laser energy meters, and laser beam diagnostics products.
 
-## TABLE FORMATTING RULES (HIGHEST PRIORITY):
+When you are parsing a technical product datasheet, always:
+1. Follow table formatting rules
+2. Extract pairs of model names and part numbers
+
+## TABLE FORMATTING RULES:
 
 1. FILL ALL EMPTY CELLS: Every cell in specification tables must be filled. No cell should be empty.
    - When a value spans multiple columns, copy that value to each individual cell it applies to.
@@ -41,18 +45,46 @@ CORRECT (all cells filled):
 |Wavelength Range (µm)|0.19 to 12|0.19 to 12|0.19 to 12|0.19 to 12|
 |Active Area Diameter (mm)|50|50|25|10|
 
-For each datasheet table, identify pairs of model names and part numbers and store them in the document Metadata under the key 'pairs'. 
-To structure the metadata with part number and model name pairs, you can use a list of tuples, where each tuple contains a model name and its corresponding part number. Here's an example of how it can be structured in the metadata:
+## PAIR EXTRACTION RULES:
 
-'''
+4.  **CABLE TYPE HANDLING (CRITICAL):**
+    *   Many sensor part numbers specify a cable type (e.g., `(USB)`, `(RS)`, `DB25`) immediately following the number within the same table cell or within the lower part of the specification table.
+    *   When extracting pairs, **APPEND the cable type** to the model name if present.
+    *   Use the format: `[Model Name] [Cable Type]` (e.g., "PM10 USB", "PM30 RS-232", "J-10MB-LE DB25").
+    *   Common cable types to look for: USB, RS (treat as RS-232), DB25. Use the abbreviation found in the table cell (e.g., use "RS" if the table says "(RS)").
+    *   If a single cell under a model column contains multiple part numbers with different cable types, create a **separate pair for each one**.
+    *   If no cable type is explicitly mentioned next to the part number in its cell, especially when you determine the product to be some type other than sensor, **DO NOT** append anything to the model name.
+
+## EXAMPLES OF CORRECT PAIR EXTRACTION (incorporating cable types):
+
+Consider this table cell under the 'PM30' column: `1174257 (USB)² \n 1174258 (RS)`
+
+CORRECT PAIRS EXTRACTED:
+('PM30 USB', '1174257')
+('PM30 RS', '1174258')
+
+Consider this cell under the 'PM10' column: `1174262 (USB)²`
+
+CORRECT PAIR EXTRACTED:
+('PM10 USB', '1174262')
+
+Consider this cell under the 'PM2' column: `1174264` (no cable type mentioned)
+
+CORRECT PAIR EXTRACTED:
+('PM2', '1174264')
+
+
+## FINAL OUTPUT FORMAT within the text:
+
+Ensure the final output in the text strictly follows this format if pairs are found:
+
 Metadata: {
     'pairs': [
-        ('PM2', '1174264'),
-        ('PM10', '1174262'),
-        ('PM30', '1174257')
+        ('Sensor Model Name with Cable Type', 'PartNumber'),
+        ('Another Sensor Model with Cable Type', 'AnotherPartNumber'),
+        ('Meter Model Name', 'MeterPartNumber')
     ]
 }
-```
 """
 
 
@@ -230,18 +262,18 @@ async def main(
         if doc_list:
             file_name = file_path.name
             total_docs_in_file = len(doc_list)
-            
+
             for i, doc in enumerate(doc_list, 1):
                 # Ensure metadata exists
-                if not hasattr(doc, 'metadata') or doc.metadata is None:
+                if not hasattr(doc, "metadata") or doc.metadata is None:
                     doc.metadata = {}
-                    
+
                 # Add/update standardized metadata while preserving original metadata
-                doc.metadata['source'] = str(file_path)
-                doc.metadata['file_name'] = file_name
-                doc.metadata['doc_num'] = i
-                doc.metadata['total_docs_in_file'] = total_docs_in_file
-                
+                doc.metadata["source"] = str(file_path)
+                doc.metadata["file_name"] = file_name
+                doc.metadata["doc_num"] = i
+                doc.metadata["total_docs_in_file"] = total_docs_in_file
+
                 # Add to the collection
                 all_docs.append(doc)
 
@@ -317,18 +349,18 @@ if __name__ == "__main__":
         if doc_list:
             file_name = file_path.name
             total_docs_in_file = len(doc_list)
-            
+
             for i, doc in enumerate(doc_list, 1):
                 # Ensure metadata exists
-                if not hasattr(doc, 'metadata') or doc.metadata is None:
+                if not hasattr(doc, "metadata") or doc.metadata is None:
                     doc.metadata = {}
-                    
+
                 # Add/update standardized metadata while preserving original metadata
-                doc.metadata['source'] = str(file_path)
-                doc.metadata['file_name'] = file_name
-                doc.metadata['doc_num'] = i
-                doc.metadata['total_docs_in_file'] = total_docs_in_file
-                
+                doc.metadata["source"] = str(file_path)
+                doc.metadata["file_name"] = file_name
+                doc.metadata["doc_num"] = i
+                doc.metadata["total_docs_in_file"] = total_docs_in_file
+
                 # Add to the collection
                 all_docs.append(doc)
 
