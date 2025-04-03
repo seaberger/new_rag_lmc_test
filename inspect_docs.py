@@ -1,28 +1,18 @@
 import pickle
 
-# Load the documents from the pickle file
-with open('test_parsed_doc.pkl', 'rb') as f:
-    documents = pickle.load(f)
+# Load the enhanced nodes from the pickle file
+with open('enhanced_laser_nodes.pkl', 'rb') as f:
+    nodes = pickle.load(f)
 
-# Inspect the structure of the documents
-if documents:
-    total_pairs = 0
-    all_pairs = []
-    for i, doc in enumerate(documents, start=1):
-        pairs = doc.metadata.get('pairs', [])
-        total_pairs += len(pairs)
-        all_pairs.extend(pairs)
-        print(f"Document {i}:")
-        print(f"Text Length: {len(doc.text)}")
-        print("Sample Content:")
-        print(doc.text[:500] + '...')
-        print("Metadata:")
-        print(doc.metadata)
-        print("-" * 40)
+# Display all contents of the first node of the first document
+node = nodes[0]  # Assuming the first node corresponds to doc 1, node 1
+print("All contents of Doc 1, Node 1:")
+print(node)
 
-    print(f"Total number of part number, model name pairs: {total_pairs}")
-    print("List of all pairs:")
-    for pair in all_pairs:
-        print(pair)
-else:
-    print("No documents found in the pickle file.")
+# Inspect some of the parsed nodes
+for i, node in enumerate(nodes[:5], start=1):  # Display the first 5 nodes for brevity
+    print(f"Node {i}:")
+    print(f"Node ID: {getattr(node, 'id', 'N/A')}")
+    print(f"Node Content: {getattr(node, 'content', 'N/A')[:200]}...")  # Display first 200 chars
+    print(f"Metadata: {getattr(node, 'metadata', 'N/A')}")
+    print("-" * 40)
