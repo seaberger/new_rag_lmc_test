@@ -1,4 +1,45 @@
 # metadata.py
+"""
+Processes a list of LlamaIndex Document objects (typically output from parse.py)
+to generate enhanced TextNode objects suitable for indexing in a RAG system.
+
+This script performs the following main steps:
+1. Loads Document objects from an input pickle file.
+2. Splits the loaded Documents into smaller TextNode objects using SentenceSplitter.
+   (Metadata from the parent Document, including extracted 'pairs', is
+   preserved in the resulting Nodes).
+3. For each TextNode, generates contextual keywords/phrases using an OpenAI LLM
+   (e.g., gpt-4o-mini or gpt-4o) via the OpenAI API.
+4. Appends the generated context string to the end of each Node's text content.
+5. Saves the final list of enhanced TextNode objects to an output pickle file.
+
+Requires:
+- An input pickle file containing a list of LlamaIndex Document objects.
+- The OPENAI_API_KEY environment variable to be set.
+- Installation of necessary libraries:
+  `pip install openai llama-index llama-index-llms-openai llama-index-embeddings-openai tqdm pydantic`
+
+Usage:
+------
+For detailed options and defaults, run:
+    python metadata.py --help
+
+Basic Examples:
+
+1. Process 'parsed_docs.pkl' and save enhanced nodes to 'enhanced_laser_nodes.pkl' (using defaults):
+   python metadata.py
+
+2. Process a specific input file and save to a specific output file:
+   python metadata.py --input processed_step1.pkl --output final_nodes_for_indexing.pkl
+
+Command Line Arguments:
+-----------------------
+--input  : Path to the input pickle file containing Document objects
+           (default: ./parsed_docs.pkl).
+--output : Path to save the output pickle file containing enhanced TextNode objects
+           (default: ./enhanced_laser_nodes.pkl).
+"""
+
 import os
 import re
 import time
@@ -67,7 +108,7 @@ async def generate_context(node_text, max_retries=3):
     for attempt in range(max_retries):
         try:
             response = openai.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
