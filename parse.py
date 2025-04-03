@@ -145,10 +145,98 @@ def create_parser() -> LlamaParse:
 
 
 # --- Post-processing Function (Final Robust Version) ---
+# def postprocess_extract_pairs(doc: Document) -> Document:
+#     """
+#     Finds "Metadata: {'pairs': ...}" block using line-anchored regex, parses it,
+#     adds to metadata, and conditionally removes the block using set_content
+#     ONLY if the block doesn't constitute the entire text content.
+#     Returns the modified document.
+#     """
+#     # Use ORIGINAL REGEX with ^ and $ anchors
+#     metadata_pairs_regex = re.compile(
+#         r"^\s*Metadata:\s*\{\s*['\"]pairs['\"]\s*:\s*(\[.*?\])\s*\}\s*$",  # Original ^...$
+#         re.MULTILINE | re.DOTALL | re.IGNORECASE,
+#     )
+
+#     if not hasattr(doc, "metadata") or doc.metadata is None:
+#         doc.metadata = {}
+
+#     if hasattr(doc, "text") and doc.text and doc.text.strip():
+#         original_text = doc.text
+#         match = metadata_pairs_regex.search(original_text)
+
+#         if match:
+#             pairs_string = match.group(1)
+#             matched_block = match.group(0)
+#             logging.debug(
+#                 f"Found potential pairs string snippet: {pairs_string[:100]}..."
+#             )
+
+#             try:
+#                 extracted_pairs = ast.literal_eval(pairs_string)
+
+#                 if isinstance(extracted_pairs, list):
+#                     all_valid = True
+#                     if not extracted_pairs:
+#                         pass
+#                     elif not all(
+#                         isinstance(p, tuple)
+#                         and len(p) == 2
+#                         and isinstance(p[0], str)
+#                         and isinstance(p[1], str)
+#                         for p in extracted_pairs
+#                     ):
+#                         all_valid = False
+#                         logging.warning(
+#                             f"Extracted pairs format invalid for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Keeping block in text."
+#                         )
+
+#                     if all_valid:
+#                         doc.metadata["pairs"] = extracted_pairs
+#                         logging.info(
+#                             f"Extracted {len(extracted_pairs)} pairs to metadata for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}"
+#                         )
+
+#                         # --- Conditional Removal Logic ---
+#                         if matched_block.strip() == original_text.strip():
+#                             logging.warning(
+#                                 f"Metadata block is entire content for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Leaving block in text."
+#                             )
+#                         else:
+#                             logging.debug(
+#                                 f"Removing metadata block from text for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}"
+#                             )
+#                             new_text = metadata_pairs_regex.sub(
+#                                 "", original_text
+#                             ).strip()
+#                             # Ensure set_content exists before calling
+#                             if hasattr(doc, "set_content"):
+#                                 doc.set_content(new_text)
+#                             else:
+#                                 logging.error(
+#                                     "Document object missing 'set_content' method. Cannot remove metadata block from text."
+#                                 )
+
+#                 else:  # Not a list
+#                     logging.warning(
+#                         f"Extracted pairs structure not a list for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Keeping block in text."
+#                     )
+
+#             except (ValueError, SyntaxError) as e:  # ast parse error
+#                 logging.warning(
+#                     f"Could not parse pairs string for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}: {e}. Snippet: '{pairs_string[:100]}...'. Keeping block in text."
+#                 )
+#         # else: No metadata block found
+#     # else: Document has no text or only whitespace
+#     return doc
+
+
+# --- Post-processing Function (Final Robust Version - Dictionary Format) ---
 def postprocess_extract_pairs(doc: Document) -> Document:
     """
     Finds "Metadata: {'pairs': ...}" block using line-anchored regex, parses it,
-    adds to metadata, and conditionally removes the block using set_content
+    converts pairs to a list of dictionaries [{'model_name': ..., 'part_number': ...}],
+    adds this list to metadata, and conditionally removes the block using set_content
     ONLY if the block doesn't constitute the entire text content.
     Returns the modified document.
     """
@@ -158,54 +246,80 @@ def postprocess_extract_pairs(doc: Document) -> Document:
         re.MULTILINE | re.DOTALL | re.IGNORECASE,
     )
 
+    # Ensure metadata dict exists if we need to add to it later
     if not hasattr(doc, "metadata") or doc.metadata is None:
         doc.metadata = {}
 
+    # Check if text exists and is not empty/whitespace before proceeding
     if hasattr(doc, "text") and doc.text and doc.text.strip():
         original_text = doc.text
         match = metadata_pairs_regex.search(original_text)
 
         if match:
-            pairs_string = match.group(1)
-            matched_block = match.group(0)
+            pairs_string = match.group(1)  # The list part '[...]'
+            matched_block = match.group(0)  # The entire matched block "Metadata: {...}"
             logging.debug(
                 f"Found potential pairs string snippet: {pairs_string[:100]}..."
             )
 
             try:
-                extracted_pairs = ast.literal_eval(pairs_string)
+                # Parse the string representation of the list of tuples
+                raw_extracted_pairs = ast.literal_eval(pairs_string)
 
-                if isinstance(extracted_pairs, list):
-                    all_valid = True
-                    if not extracted_pairs:
-                        pass
-                    elif not all(
-                        isinstance(p, tuple)
-                        and len(p) == 2
-                        and isinstance(p[0], str)
-                        and isinstance(p[1], str)
-                        for p in extracted_pairs
-                    ):
-                        all_valid = False
-                        logging.warning(
-                            f"Extracted pairs format invalid for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Keeping block in text."
-                        )
+                # Validate the raw format first (must be a list)
+                if isinstance(raw_extracted_pairs, list):
+                    # --- Convert to List of Dictionaries ---
+                    structured_pairs = []
+                    all_tuples_valid = (
+                        True  # Flag to track if all items had the correct tuple format
+                    )
 
-                    if all_valid:
-                        doc.metadata["pairs"] = extracted_pairs
+                    if not raw_extracted_pairs:  # Handle empty list case
+                        pass  # Empty list is fine
+                    else:
+                        # Iterate through the parsed tuples
+                        for p in raw_extracted_pairs:
+                            # Validate each item as (str, str) tuple
+                            if (
+                                isinstance(p, tuple)
+                                and len(p) == 2
+                                and isinstance(p[0], str)
+                                and isinstance(p[1], str)
+                            ):
+                                # Create dictionary for this pair
+                                structured_pairs.append(
+                                    {"model_name": p[0], "part_number": p[1]}
+                                )
+                            else:
+                                # Encountered an invalid item in the list
+                                all_tuples_valid = False
+                                logging.warning(
+                                    f"Invalid tuple format within pairs list for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Item: {p}. Keeping block in text."
+                                )
+                                break  # Stop processing this block if one tuple is bad
+                    # --- End Conversion ---
+
+                    # Proceed only if all original tuples were valid
+                    if all_tuples_valid:
+                        # Assign the list of dictionaries to metadata
+                        doc.metadata["pairs"] = structured_pairs
                         logging.info(
-                            f"Extracted {len(extracted_pairs)} pairs to metadata for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}"
+                            f"Extracted {len(structured_pairs)} pairs to metadata (dict format) for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}"
                         )
 
-                        # --- Conditional Removal Logic ---
+                        # --- Conditional Removal Logic (remains the same) ---
+                        # Compare stripped versions to see if block was the only non-whitespace content
                         if matched_block.strip() == original_text.strip():
                             logging.warning(
                                 f"Metadata block is entire content for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Leaving block in text."
                             )
+                            # DO NOT MODIFY TEXT in this case
                         else:
+                            # Metadata block is part of larger text content, remove it safely
                             logging.debug(
                                 f"Removing metadata block from text for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}"
                             )
+                            # Use re.sub on the original text, then strip the result
                             new_text = metadata_pairs_regex.sub(
                                 "", original_text
                             ).strip()
@@ -217,18 +331,23 @@ def postprocess_extract_pairs(doc: Document) -> Document:
                                     "Document object missing 'set_content' method. Cannot remove metadata block from text."
                                 )
 
-                else:  # Not a list
+                    # else: all_tuples_valid was false, already logged warning, do nothing further to text
+
+                else:  # Original structure wasn't a list
                     logging.warning(
                         f"Extracted pairs structure not a list for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}. Keeping block in text."
                     )
 
-            except (ValueError, SyntaxError) as e:  # ast parse error
+            except (ValueError, SyntaxError) as e:  # Error during ast.literal_eval
                 logging.warning(
                     f"Could not parse pairs string for doc {doc.metadata.get('file_name', '?')} sec {doc.metadata.get('doc_num', '?')}: {e}. Snippet: '{pairs_string[:100]}...'. Keeping block in text."
                 )
-        # else: No metadata block found
-    # else: Document has no text or only whitespace
-    return doc
+
+        # else: No metadata block found in text, do nothing
+
+    # else: Document has no text or only whitespace, do nothing
+
+    return doc  # Return the document, potentially modified or not
 
 
 # --- Parallel Processing Core (Re-enable post-processing call) ---
