@@ -9,6 +9,11 @@ import json  # Import the json module
 import logging
 from pathlib import Path  # Import Path
 from contextlib import asynccontextmanager
+from fastapi.responses import FileResponse
+
+# Create images directory if it doesn't exist
+images_dir = Path("./images")
+# images_dir.mkdir(exist_ok=True)
 
 # Import chat engine functions
 from chat_engine import init_chat_engine
@@ -290,7 +295,7 @@ custom_css = Style("""
 # Initialize FastHTML app - PASS LIFESPAN MANAGER
 app, rt = fast_app(
     hdrs=(
-        Title("Matrix Laser Technical Support"),
+        # Titled("Matrix Laser Support"),
         Theme.blue.headers(),
         custom_css,
         set_query_script,
@@ -346,13 +351,13 @@ def chat_interface(request: Request):
 
     return Div(
         Div(
-            H1(
-                "Matrix Laser Technical Support",
-                style="font-size: 2rem; font-weight: 500; color: #202124;",
-            ),
+            # H1(
+            #     "Matrix Laser Technical Support",
+            #     style="font-size: 2rem; font-weight: 500; color: #202124;",
+            # ),
             P(
                 "Ask technical questions about Matrix laser products",
-                style="font-size: 1rem; color: #5f6368; margin-top: 0.5rem;",
+                style="font-size: 1.3rem; color: #5f6368; margin-top: 0.5rem; font-weight: bold; font-style: italic;",
             ),
             style="text-align: center; margin-bottom: 40px; padding-bottom: 1rem;",
         ),
@@ -415,36 +420,51 @@ def chat_interface(request: Request):
 
 
 # Main route - No changes needed here
-@rt("/")
-def get(request: Request):
-    return Titled("Matrix Laser Technical Support", chat_interface(request=request))
-
-
 # @rt("/")
 # def get(request: Request):
-#     # --- REPLACE the previous return statement with this ---
-#     return Titled(  # Sets browser tab title *only*
-#         "Matrix Laser Technical Support",
-#         # --- Main page body container Div ---
-#         Div(
-#             # --- 1. Logo Image ---
-#             Img(
-#                 src="https://static.cdnlogo.com/logos/c/5/coherent-6163.svg",  # Logo URL
-#                 alt="Coherent Logo",
-#                 # Style the logo: Moderate height, left margin, bottom margin for padding
-#                 style="height: 350px; width: auto; display: block; margin-left: 40px; margin-bottom: 10px; margin-top: 20px;",  # Adjust height/margins as needed
-#             ),
-#             # --- 2. The ONLY Visible Page Title ---
-#             H1(
-#                 "Matrix Laser Technical Support",
-#                 # Style the title: Left margin to match logo, adjust font, space below
-#                 style="margin-left: 40px; margin-top: 0; margin-bottom: 30px; font-size: 2.5rem; font-weight: bold; color: #202124;",  # Align with logo, style as needed
-#             ),
-#             # --- 3. Chat Interface (relies on its own styling for centering/positioning) ---
-#             chat_interface(request=request),
-#         ),
-#         # Note: No style applied to the outer Div, allowing chat_interface's margins to work.
-#     )
+#     return Titled("Matrix Laser Technical Support", chat_interface(request=request))
+
+
+# Add a route to serve the logo
+@rt("/images/Coherent_logo_blue.png")
+def get_logo():
+    logo_path = images_dir / "Coherent_logo_blue.png"
+    if logo_path.exists():
+        return FileResponse(logo_path)
+    else:
+        return {"error": "Logo not found"}
+
+
+@rt("/")
+def get(request: Request):
+    # Replace the previous simple return statement with this
+    return Titled(  # Sets browser tab title *only*
+        "Matrix Laser Technical Support",
+        # Main page body container Div
+        Div(
+            # Empty div to "absorb" the auto-generated H1
+            Div(style="display: none;"),
+            # 1. Logo Image positioned in the top left corner
+            #
+            Div(
+                Img(
+                    src="/images/Coherent_logo_blue.png",
+                    alt="Coherent Logo",
+                    style="height: 60px; width: auto; display: block; margin-left: 40px; margin-bottom: 10px; margin-top: 20px;",
+                ),
+                # H1(
+                #     "Matrix Laser Technical Support",
+                #     style="margin-left: 40px; margin-top: 0; margin-bottom: 30px; font-size: 2.5rem; font-weight: bold; color: #202124;",
+                # ),
+                # Add a style to create a flex container for logo and title if desired
+                style="display: flex; align-items: center; margin-bottom: 30px;",
+            ),
+            # 3. Chat Interface (remains unchanged)
+            chat_interface(request=request),
+        ),
+    )
+
+
 @rt("/send-message", methods=["POST"])
 def send_message(request: Request, query: str):
     chat_engine = (
@@ -508,6 +528,9 @@ if __name__ == "__main__":
     print("\n--- Starting Server ---")
     print(f"Production Mode: {in_production}")
     print(f"Uvicorn Reload: {reload_status}")
-    serve(reload=reload_status)
+    # serve(reload=reload_status)
+    # Set the host to 127.0.0.1 explicitly
+    import uvicorn
 
+    uvicorn.run("main:app", host="127.0.0.1", port=5001, reload=reload_status)
 # --- END OF FILE main.py ---
