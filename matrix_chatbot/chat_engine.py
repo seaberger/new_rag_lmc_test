@@ -336,7 +336,7 @@ def create_retriever(cohere_api_key):
         logging.info("VectorStoreIndex loaded successfully.")
 
         # Create vector retriever
-        vector_retriever = index.as_retriever(similarity_top_k=10)
+        vector_retriever = index.as_retriever(similarity_top_k=15)
 
     except Exception as e:
         logging.error(f"Error creating vector retriever from persistent Qdrant: {e}")
@@ -349,9 +349,7 @@ def create_retriever(cohere_api_key):
     logging.info("Initializing Cohere Reranker...")
     try:
         # Use a recent model if available, check Cohere docs. v3 is recommended.
-        reranker = CohereRerank(
-            api_key=cohere_api_key, model="rerank-english-v3.0", top_n=5
-        )
+        reranker = CohereRerank(api_key=cohere_api_key, model="rerank-v3.5", top_n=8)
     except Exception as e:
         logging.error(
             f"Error initializing Cohere Reranker: {e}. Reranking will be disabled."
