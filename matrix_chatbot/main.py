@@ -85,6 +85,91 @@ function setQuery(text) {
 }
 """)
 
+textarea_auto_grow_script = Script("""
+function autoGrowTextarea(element) {
+  element.style.height = 'auto'; // Temporarily shrink to measure
+  // Add a small buffer (e.g., 2px) if content sometimes gets cut off
+  element.style.height = (element.scrollHeight) + 'px';
+}
+
+// Function to toggle suggestions visibility with more robust handling
+function toggleSuggestions() {
+  console.log('Toggle suggestions called');
+  const container = document.getElementById('suggestions-container');
+  const toggleBtn = document.querySelector('.suggestions-toggle');
+  const buttonsContainer = document.getElementById('suggestions-buttons');
+  
+  if (!buttonsContainer) {
+    console.error('Suggestions buttons container not found');
+    return;
+  }
+  
+  if (container.classList.contains('suggestions-collapsed')) {
+    // Show suggestions
+    container.classList.remove('suggestions-collapsed');
+    toggleBtn.textContent = 'Hide Suggestions ▲';
+    toggleBtn.style.backgroundColor = '#1a73e8'; // Blue when showing
+    buttonsContainer.style.display = 'block';
+    console.log('Showing suggestions');
+  } else {
+    // Hide suggestions
+    container.classList.add('suggestions-collapsed');
+    toggleBtn.textContent = 'Show Suggestions ▼';
+    toggleBtn.style.backgroundColor = '#1a73e8'; // Blue when hidden
+    buttonsContainer.style.display = 'none';
+    console.log('Hiding suggestions');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const textarea = document.getElementById('user-input');
+    if(textarea) {
+        // Add class for CSS styling
+        textarea.classList.add('auto-grow-textarea');
+        // Add listener for input events
+        textarea.addEventListener('input', function() {
+            autoGrowTextarea(this);
+        });
+        // Initial call in case loaded with content (e.g., browser restore)
+        autoGrowTextarea(textarea);
+    }
+    
+    // Initialize mobile suggestions - more robust implementation
+    const isMobile = window.matchMedia('(max-width: 600px)').matches;
+    console.log('Is mobile device:', isMobile);
+    
+    // Apply mobile-specific setup with a slight delay to ensure DOM is fully loaded
+    setTimeout(function() {
+        if (isMobile) {
+            const container = document.getElementById('suggestions-container');
+            const toggleBtn = document.querySelector('.suggestions-toggle');
+            const buttonsContainer = document.getElementById('suggestions-buttons');
+            
+            if (container && toggleBtn && buttonsContainer) {
+                console.log('Mobile device detected, initializing suggestions toggle');
+                // Ensure collapsed class is applied on mobile
+                container.classList.add('suggestions-collapsed');
+                toggleBtn.style.display = 'block';
+                buttonsContainer.style.display = 'none';
+                
+                // Force visibility of the toggle button on mobile
+                toggleBtn.setAttribute('style', 'display: block !important; margin: 5px auto; padding: 6px 12px; font-weight: bold;');
+            } else {
+                console.error('Mobile setup: One or more required elements not found');
+            }
+        }
+    }, 100); // Short delay to ensure DOM is ready
+});
+// Also listen for custom events if content might be set programmatically later
+document.body.addEventListener('htmx:afterSwap', function(event) {
+     // If textarea content might change via OOB swap (though we clear it now)
+     if (event.detail.target.id === 'user-input' || event.detail.elt.id === 'user-input') {
+         const textarea = document.getElementById('user-input');
+         if (textarea) autoGrowTextarea(textarea);
+     }
+});
+""")
+
 auto_scroll_script = Script("""
 document.addEventListener('htmx:afterSwap', function(event) {
     if (event.detail.target.id === 'chat-messages' || event.detail.target.closest('#chat-messages')) {
@@ -211,12 +296,14 @@ if (textarea) {
 
 
 # --- CSS Styles (no changes needed in the CSS content itself) ---
+#
 custom_css = Style("""
     body {
         background-color: #f8f9fa;
         font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
     }
 
+    /* --- General Content Styling --- */
     pre {
         background-color: #f1f3f4;
         padding: 1rem;
@@ -225,67 +312,98 @@ custom_css = Style("""
         font-size: 0.9rem;
         margin: 1rem 0;
     }
-
     code {
         color: #202124;
         font-family: 'Roboto Mono', monospace;
         font-size: 0.9em;
     }
-
     p {
         line-height: 1.5;
         margin: 0.5em 0;
     }
-
     h1, h2, h3, h4, h5, h6 {
         color: #202124;
         margin-top: 1.5rem;
         margin-bottom: 0.5rem;
     }
+    ul, ol { padding-left: 1.5rem; margin: 0.75rem 0; }
+    li { margin-bottom: 0.5rem; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #e0e0e0; padding: 0.5rem; text-align: left; }
+    th { background-color: #f1f3f4; }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
 
-    ul, ol {
-        padding-left: 1.5rem;
-        margin: 0.75rem 0;
+    /* --- Logo Styling --- */
+    .logo-container {
+        text-align: center; /* Center the logo */
+        padding: 15px 0;   /* Add some padding */
+        background-color: #f8f9fa; /* Match body background */
+        flex-shrink: 0;    /* Prevent shrinking */
+        margin-bottom: 10px; /* Space below logo */
+    }
+    .header-logo {
+        max-width: 150px;  /* Max width on desktop */
+        height: auto;      /* Maintain aspect ratio */
+        display: inline-block; /* Correct display for centering */
+        vertical-align: middle; /* Align nicely if there's text */
     }
 
-    li {
-        margin-bottom: 0.5rem;
+    /* --- Title Block Styling --- */
+    .title-block {
+        text-align: center;
+        margin-bottom: 15px;
+        padding: 5px 0; /* Reduced padding slightly */
+        flex-shrink: 0;
+    }
+    .page-title {
+        font-size: 1.0rem; /* Desktop font size */
+        color: #5f6368;
+        margin: 0; /* Remove default P margins */
+        font-weight: bold;
+        font-style: italic;
     }
 
-    table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1rem 0;
+    /* --- Text Area Styling --- */
+    .auto-grow-textarea {
+        resize: none; /* Disable manual resize */
+        overflow-y: hidden; /* Hide scrollbar initially */
     }
 
-    th, td {
-        border: 1px solid #e0e0e0;
-        padding: 0.5rem;
-        text-align: left;
-    }
-
-    th {
-        background-color: #f1f3f4;
-    }
-
-    a {
+    /* --- Suggestion Button Styling --- */
+    .suggestion-btn {
+        display: inline-block;
         color: #1a73e8;
-        text-decoration: none;
+        background-color: #f1f3f4;
+        margin: 0.4rem;
+        padding: 0.6rem 1rem;
+        border: none;
+        border-radius: 24px; /* Rounded corners */
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        transition: background-color 0.2s;
     }
-
-    a:hover {
-        text-decoration: underline;
-    }
-
     .suggestion-btn:hover {
-        background-color: #e8f0fe;
+        background-color: #e8f0fe; /* Lighter blue on hover */
     }
 
-    @media (max-width: 640px) {
-        pre {
-            padding: 0.75rem;
-            font-size: 0.8rem;
-        }
+    /* --- Suggestions Toggle Button (Mobile) --- */
+    .suggestions-toggle {
+        background-color: #1a73e8; /* Blue */
+        color: white;
+        border: none;
+        border-radius: 20px;
+        padding: 8px 16px;
+        font-size: 1rem;
+        cursor: pointer;
+        margin: 10px auto;
+        display: none; /* Hidden by default on desktop */
+        font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        width: 80%;
+        text-align: center;
     }
 
     /* --- Keyframes for Spinners --- */
@@ -294,152 +412,144 @@ custom_css = Style("""
         100% { transform: rotate(360deg); }
     }
 
-    /* --- External Spinner (If Used Elsewhere) --- */
+    /* --- External Spinner (Not currently used in main UI, but keep for potential future use) --- */
     #spinner {
-        position: absolute;
-        bottom: 0;
-        left: 100%;
-        margin-left: 10px;
-        width: 30px;
-        height: 30px;
-        opacity: 0;
-        transition: opacity 0.2s ease-in-out;
-        z-index: 100;
-        box-sizing: border-box;
-        border: 4px solid rgba(0, 0, 0, 0.1);
-        border-left-color: #1a73e8;
-        border-radius: 50%;
+        position: absolute; bottom: 0; left: 100%; margin-left: 10px;
+        width: 30px; height: 30px; opacity: 0;
+        transition: opacity 0.2s ease-in-out; z-index: 100;
+        box-sizing: border-box; border: 4px solid rgba(0, 0, 0, 0.1);
+        border-left-color: #1a73e8; border-radius: 50%;
     }
     #spinner.htmx-request {
-        opacity: 1;
-        animation: spinner-spin 1s linear infinite;
+        opacity: 1; animation: spinner-spin 1s linear infinite;
     }
-
 
     /* --- START: CSS for Enhanced Run/Stop Button --- */
-
-    /* Base Button Styles (with Debugging Flags) */
     .run-button-base {
-        min-width: 100px;
-        background-color: #1a73e8 !important; /* DEBUG: Force blue */
-        color: white !important; /* DEBUG: Force white */
-        border: none;
-        border-radius: 18px;
-        font-weight: 500;
-        font-size: 15px;
-        cursor: pointer;
-        height: 36px;
-        text-align: center;
-        transition: background-color 0.2s;
-        box-sizing: border-box;
-        position: relative;
-        display: inline-flex; /* Button is flex container */
-        align-items: center; /* Vertical centering */
-        justify-content: center; /* Horizontal centering */
-        vertical-align: middle;
-        overflow: hidden;
+        min-width: 100px; background-color: #1a73e8 !important; /* Blue */
+        color: white !important; border: none; border-radius: 18px; /* Slightly less rounded */
+        font-weight: 500; font-size: 15px; cursor: pointer; height: 36px;
+        text-align: center; transition: background-color 0.2s; box-sizing: border-box;
+        position: relative; display: inline-flex; align-items: center;
+        justify-content: center; vertical-align: middle; overflow: hidden;
     }
-    /* Comment out hover during debug if needed */
     .run-button-base:hover {
-        background-color: #185abc !important; /* DEBUG: Force darker blue */
+        background-color: #185abc !important; /* Darker blue */
     }
-
-    /* Inner Content Container */
     .button-inner-content {
-        display: inline-flex; /* Contents are also flex */
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        gap: 6px;
-        padding: 0 12px; /* Padding inside */
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 100%; height: 100%; gap: 6px; padding: 0 12px;
     }
-
-    /* Default Visibility for Text/Icons */
     .button-text { display: none; } /* Hide all text spans by default */
     .run-text { display: inline; }  /* Show Run text */
-    /* .stop-text is covered by .button-text default */
-
     .button-icon { font-size: 1.1em; opacity: 1; transition: opacity 0.2s ease-in-out; }
     .cmd-icon { display: inline; } /* Show Cmd icon */
 
-    /* Spinner Default Visibility & Style */
+    /* Spinner integrated into button */
     .inline-spinner {
-    width: 20px;
-    height: 20px;
-    /* Remove border properties from the container */
-    /* border: 3px solid rgba(255, 255, 255, 0.3); */
-    /* border-left-color: #ffffff; */
-    border-radius: 50%;
-    display: none !important; /* DEBUG: Keep hidden default */
-    box-sizing: border-box;
-    position: relative; /* Still needed for pseudo-element and square */
-    flex-shrink: 0;
-    /* Remove animation from the container */
-    /* animation: spinner-spin 0.8s linear infinite; */
-}
+        width: 20px; height: 20px; border-radius: 50%;
+        display: none !important; /* Hidden by default */
+        box-sizing: border-box; position: relative; flex-shrink: 0;
+    }
+    .spinner-square { /* The small square in the middle */
+        position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
+        background-color: white; transform: translate(-50%, -50%);
+        display: block; z-index: 1;
+    }
+    .inline-spinner::before { /* The spinning border */
+        content: ""; box-sizing: border-box; position: absolute; top: 0; left: 0;
+        width: 100%; height: 100%; border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.3); /* Light track */
+        border-top-color: #ffffff; /* Spinning segment */
+        animation: spinner-spin 0.8s linear infinite;
+    }
 
-/* Spinner Square (Centered inside container) */
-.spinner-square {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 8px;
-    height: 8px;
-    background-color: white;
-    transform: translate(-50%, -50%);
-    display: block; /* Keep block */
-    z-index: 1; /* Ensure square is above the spinning border */
-}
-
-/* Spinning Border using ::before Pseudo-element */
-.inline-spinner::before {
-    content: "";
-    box-sizing: border-box;
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%; /* Match parent size */
-    height: 100%; /* Match parent size */
-    border-radius: 50%; /* Make it round */
-    /* Apply border styles HERE */
-    border: 3px solid rgba(255, 255, 255, 0.3); /* Light track */
-    border-top-color: #ffffff; /* Spinning segment (use border-top/left/right/bottom) */
-    /* Apply animation HERE */
-    animation: spinner-spin 0.8s linear infinite;
-}
-
-/* STYLING WHEN HTMX REQUEST IS ACTIVE */
-form#chat-form.htmx-request .inline-spinner {
-    display: inline-block !important; /* DEBUG: Force show container */
-}
-    form#chat-form.htmx-request .button-inner-content {
-        /* justify-content: center; /* Keep centered */
+    /* Styling WHEN HTMX REQUEST IS ACTIVE */
+    form#chat-form.htmx-request .run-button-base {
     }
     form#chat-form.htmx-request .inline-spinner {
-        display: inline-block !important; /* DEBUG: Force show spinner */
+        display: inline-block !important; /* Show spinner container */
     }
-    form#chat-form.htmx-request .run-text {
-        display: none !important; /* DEBUG: Force hide Run */
-    }
-    form#chat-form.htmx-request .cmd-icon {
-        display: none !important; /* DEBUG: Force hide Cmd icon */
-    }
-    form#chat-form.htmx-request .stop-text {
-        display: inline !important; /* DEBUG: Force show Stop */
-    }
+    form#chat-form.htmx-request .run-text { display: none !important; } /* Hide Run */
+    form#chat-form.htmx-request .cmd-icon { display: none !important; } /* Hide Cmd icon */
+    form#chat-form.htmx-request .stop-text { display: inline !important; } /* Show Stop */
     /* --- END: CSS for Enhanced Run/Stop Button --- */
 
+
+    /* === MEDIA QUERY FOR MOBILE RESPONSIVENESS (max-width: 600px) === */
+    @media only screen and (max-width: 600px) {
+        /* Smaller Logo on Mobile */
+        .header-logo {
+            max-width: 140px; /* Adjust as needed */
+        }
+
+        /* Smaller Title on Mobile */
+        .page-title {
+            font-size: 1.0rem; /* Adjust as needed */
+        }
+
+        /* Smaller code blocks */
+         pre {
+            padding: 0.75rem;
+            font-size: 0.8rem;
+        }
+
+        /* Mobile suggestion styles (Keep existing from original) */
+        .suggestion-hide-mobile {
+            display: none !important; /* Force hide elements with this class */
+        }
+        .suggestion-btn {
+            margin: 0.3rem !important; /* Adjust spacing */
+            padding: 0.5rem 0.8rem !important; /* Adjust padding */
+            font-size: 0.85rem !important; /* Adjust font */
+        }
+        #suggestions-container {
+            /* Adjust padding/margin if needed, keep max-height/overflow */
+             padding: 0.3rem !important;
+             margin-bottom: 8px !important;
+             max-height: none !important; /* Allow full height when expanded */
+             overflow-y: visible !important; /* Let content flow */
+             border-bottom: 1px solid #eee; /* Keep separator */
+        }
+         /* Container for the buttons themselves, hidden when collapsed */
+         #suggestions-buttons {
+            /* Add flex wrapping for better button layout */
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px; /* Add gap between buttons */
+            margin-top: 10px;
+            transition: max-height 0.3s ease-in-out; /* Keep transition if desired */
+        }
+        .suggestions-toggle {
+            /* Ensure toggle is visible and styled */
+            display: block !important;
+            width: 80% !important; max-width: 250px !important;
+            margin: 10px auto !important; padding: 8px 16px !important;
+            font-weight: bold !important; font-size: 1rem !important;
+            border-radius: 20px !important;
+        }
+        /* Hide suggestions container content by default on mobile */
+        .suggestions-collapsed #suggestions-buttons {
+            display: none !important; /* This hides the button container */
+            max-height: 0 !important; /* Helps with transitions */
+            overflow: hidden !important;
+        }
+         /* Ensure container doesn't take space when collapsed */
+        .suggestions-collapsed {
+            padding-bottom: 0 !important;
+            border-bottom: none !important; /* Hide border when collapsed */
+            margin-bottom: 0 !important;
+        }
+    }
 """)
 
-
-# --- Initialize FastHTML app using fast_app helper ---
-# This combines app creation, route setup, headers, and lifespan integration
 app, rt = fast_app(
     hdrs=(  # Pass all headers/scripts/styles here
         # No need for Titled() here, handle in route if needed
         favicon_link,
         custom_css,
+        textarea_auto_grow_script,
         set_query_script,
         auto_scroll_script,
         submit_on_enter_script,
@@ -447,49 +557,17 @@ app, rt = fast_app(
     ),
     lifespan=lifespan,  # Pass the lifespan manager
 )
-# Now `app` is the configured FastHTML instance and `rt` is its route decorator
 
 
-# def simple_message_html(content, role):
-#     """Generate HTML string for a message (no changes needed)"""
-#     is_user = role == "user"
-#     avatar = "👤" if is_user else "🤖"
-#     content_html = ""
-#     if not is_user:
-#         cleaned_content = re.sub(r"```\s*\n\s*```", "", content)
-#         cleaned_content = re.sub(r"```[a-z]*\s*\n\s*```", "", cleaned_content)
-#         try:
-#             from mistletoe import Document, HTMLRenderer
-
-
-#             doc = Document(cleaned_content)
-#             renderer = HTMLRenderer()
-#             content_html = renderer.render(doc)
-#             content_html = re.sub(
-#                 r"<pre>\s*<code>\s*</code>\s*</pre>", "", content_html
-#             )
-#         except Exception as e:
-#             logging.warning(f"Markdown failed: {e}.", exc_info=False)
-#             content_html = f"<p>{content}</p>"
-#     else:
-#         content_html = f"<p>{content}</p>"
-#     # Return the formatted message HTML
-#     return f"""
-#     <div style="display: flex; gap: 1rem; padding: 1rem; margin-bottom: 1rem; max-width: 85%; {"margin-left: auto;" if not is_user else ""}">
-#         <div style="width: 32px; height: 32px; background-color: {"#4285f4" if not is_user else "#5f6368"}; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0;">{avatar}</div>
-#         <div style="background-color: {"#f1f3f4" if not is_user else "white"}; padding: 12px 16px; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); flex-grow: 1;"><div style="color: #202124; font-size: 15px;">{content_html}</div></div>
-#     </div>"""
 def simple_message_html(content, role):
     """Generate HTML string for a message without avatars"""
     is_user = role == "user"
 
     # Message processing
     if not is_user:
-        # (Keep your markdown processing logic here)
-        cleaned_content = re.sub(r"```\s*\n\s*```", "", content)  # Example
-        cleaned_content = re.sub(
-            r"```[a-z]*\s*\n\s*```", "", cleaned_content
-        )  # Example
+        # Process markdown for assistant messages
+        cleaned_content = re.sub(r"```\s*\n\s*```", "", content)
+        cleaned_content = re.sub(r"```[a-z]*\s*\n\s*```", "", cleaned_content)
         try:
             from mistletoe import Document, HTMLRenderer
 
@@ -507,10 +585,10 @@ def simple_message_html(content, role):
 
     # Determine container alignment
     container_margin = "margin-left: auto;" if not is_user else ""
-    # Optional extra style (e.g., margin-right for assistant bubble)
-    bubble_extra_style = ""  # Or ' margin-right: 32px;' if not is_user else ''
+    # Optional extra style
+    bubble_extra_style = ""
 
-    # --- Corrected f-string (INVALID COMMENTS REMOVED) ---
+    # Return the formatted message HTML
     return f"""
     <div style="display: flex; gap: 1rem; padding: 1rem; margin-bottom: 1rem; max-width: 85%; {container_margin}">
         <div style="background-color: {"#f1f3f4" if not is_user else "white"}; padding: 12px 16px; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); flex-grow: 1;{bubble_extra_style}">
@@ -520,150 +598,9 @@ def simple_message_html(content, role):
         </div>
     </div>
     """
-    # --- END Correction ---
 
 
-# def chat_interface(request: Request):
-#     """Create the main chat interface components."""
-#     # Access chat engine safely from request state
-#     chat_engine = getattr(request.app.state, "chat_engine", None)
-#     suggested_questions = getattr(request.app.state, "suggested_questions", [])
-
-#     # --- Check if chat engine loaded ---
-#     if chat_engine is None:
-#         logging.error("Chat engine is None when rendering chat_interface.")
-#         return Div(
-#             H1("Error", style="color: red;"),
-#             P(
-#                 "The Chat Engine failed to initialize or is not available. Please check server logs."
-#             ),
-#             style="max-width: 800px; margin: 40px auto; padding: 20px; background-color: #fff; border: 1px solid red; border-radius: 8px;",
-#         )
-
-#     # --- Build Suggested Questions ---
-#     suggestion_buttons = []
-#     if suggested_questions:
-#         for q in suggested_questions:
-#             safe_q = q.replace("'", "\\'")
-#             suggestion_buttons.append(
-#                 Button(
-#                     q,
-#                     onclick=f"setQuery('{safe_q}')",
-#                     style="color: #1a73e8; background-color: #f1f3f4; margin: 0.4rem; padding: 0.6rem 1rem; border: none; border-radius: 24px; cursor: pointer; font-size: 0.9rem; display: inline-block; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: background-color 0.2s;",
-#                 )
-#             )
-#     else:
-#         suggestion_buttons.append(
-#             P("No suggestions available.", style="font-style: italic; color: #666;")
-#         )
-#     suggestions_div = Div(
-#         *suggestion_buttons,
-#         style="padding: 1rem; text-align: center; margin: 20px 0 30px 0;",
-#     )
-
-#     # --- Internal Title Block ---
-#     title_block = Div(
-#         P(
-#             "Ask technical questions about Matrix laser products",
-#             style="font-size: 1.3rem; color: #5f6368; margin-top: 0.5rem; font-weight: bold; font-style: italic;",
-#         ),
-#         style="text-align: center; margin-bottom: 40px; padding-bottom: 1rem;",
-#     )
-
-
-#     # --- Main Chat Container ---
-#     return Div(
-#         title_block,
-#         Div(  # Chat messages area
-#             Safe(
-#                 simple_message_html(
-#                     "Welcome! How can I assist you with Matrix lasers today?",
-#                     "assistant",
-#                 )
-#             ),
-#             suggestions_div,
-#             id="chat-messages",
-#             style="max-height: 60vh; overflow-y: auto; padding-right: 10px; margin-bottom: 30px;",
-#         ),
-#         Div(  # Form and controls area
-#             Form(
-#                 Div(  # Input Row
-#                     TextArea(
-#                         placeholder="Ask a question about Matrix lasers...",
-#                         id="user-input",
-#                         name="query",
-#                         rows=1,
-#                         autofocus=True,
-#                         style="width: 100%; box-sizing: border-box; padding: 14px 110px 14px 16px; font-size: 16px; color: #202124; border: 1px solid #dfe1e5; border-radius: 24px; resize: none; outline: none; box-shadow: none; height: 52px; margin: 0;",
-#                     ),
-#                     # --- Corrected Button Structure with Commas ---
-#                     Button(
-#                         Span(  # Start of outer Span arguments
-#                             # Positional arguments for the outer Span come FIRST:
-#                             # 1.1 Spinner Span
-#                             Span(  # Outer Spinner Span call
-#                                 # Positional Argument(s) first:
-#                                 Span(cls="spinner-square"),  # The inner square Span
-#                                 # Keyword Argument(s) last:
-#                                 cls="inline-spinner",
-#                             ),  # Comma still needed between positional args
-#                             # 1.2 Run Text Span
-#                             Span(
-#                                 "Run", cls="button-text run-text"
-#                             ),  # Positional then KWD is fine here
-#                             # Comma still needed between positional args
-#                             # 1.3 Stop Text Span
-#                             Span(
-#                                 "Stop", cls="button-text stop-text"
-#                             ),  # Positional then KWD is fine here
-#                             # Comma still needed between positional args
-#                             # 1.4 Icon Span
-#                             Span(
-#                                 " ⌘⏎", cls="button-icon cmd-icon"
-#                             ),  # Positional then KWD is fine here
-#                             # Keyword arguments for the outer Span come LAST:
-#                             cls="button-inner-content",  # Moved cls keyword arg to the end
-#                         ),
-#                         # Span(cls="button-inner-content", # Inner content wrapper
-#                         #     Span(cls="inline-spinner", Span(cls="spinner-square")), # 1. Spinner
-#                         #     Span("Run", cls="button-text run-text"), # 2. Run Text
-#                         #     Span("Stop", cls="button-text stop-text"), # 3. Stop Text
-#                         #     Span(" ⌘⏎", cls="button-icon cmd-icon"), # 4. Icon
-#                         # ), # <-- End of main Span (Positional Arg 1)
-#                         # Keyword arguments for Button:
-#                         type="submit",
-#                         id="run-stop-button",
-#                         cls="run-button-base",
-#                         style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); overflow: hidden;",
-#                         title="Submit query (⌘+⏎ or Ctrl+Enter)"
-#                     ),
-#                     # --- End Corrected Button ---
-#                     style="position: relative; display: block; margin-bottom: 24px; min-height: 52px;",
-#                 ),
-#                 hx_post="/send-message",
-#                 hx_target="#chat-messages",
-#                 hx_swap="beforeend",
-#                 hx_indicator="#chat-form",
-#                 id="chat-form",
-#             ),
-#             # Reset button
-#             Div(
-#                 Button(
-#                     "Reset Chat",
-#                     hx_post="/reset-chat",
-#                     hx_target="#chat-container",
-#                     hx_swap="innerHTML",
-#                     hx_confirm="Are you sure?",
-#                     style="background-color: #f1f3f4; color: #5f6368; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; font-weight: 500; height: 36px; line-height: 20px;",
-#                 ),
-#                 style="text-align: center; margin-bottom: 24px;",
-#             ),
-#             style="margin-top: 1rem; position: sticky; bottom: 0; background-color: white; padding-top: 12px; border-top: 1px solid #f0f0f0;",
-#         ),
-#         # No external spinner Div needed as it's inside the button now
-#         id="chat-container",
-#         style="max-width: 900px; margin: 40px auto; padding: 30px; font-family: 'Google Sans', 'Segoe UI', system-ui, sans-serif; background-color: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); position: relative;",
-#     )
+# --- chat_interface function (MODIFIED) ---
 def chat_interface(request: Request):
     """Create the main chat interface components with internal scrolling."""
     # Access chat engine safely from request state
@@ -684,39 +621,60 @@ def chat_interface(request: Request):
     # --- Build Suggested Questions ---
     suggestion_buttons = []
     if suggested_questions:
-        for q in suggested_questions:
+        for i, q in enumerate(suggested_questions):
             safe_q = q.replace("'", "\\'")
+            # Add a class based on index - hide buttons after the first 2 on mobile
+            # CSS media query handles hiding '.suggestion-hide-mobile'
+            mobile_hide_class = " suggestion-hide-mobile" if i >= 2 else ""
             suggestion_buttons.append(
                 Button(
                     q,
                     onclick=f"setQuery('{safe_q}')",
-                    style="color: #1a73e8; background-color: #f1f3f4; margin: 0.4rem; padding: 0.6rem 1rem; border: none; border-radius: 24px; cursor: pointer; font-size: 0.9rem; display: inline-block; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,0.1); transition: background-color 0.2s;",
+                    # Use class for styling instead of inline style
+                    cls=f"suggestion-btn{mobile_hide_class}",
                 )
             )
     else:
         suggestion_buttons.append(
             P("No suggestions available.", style="font-style: italic; color: #666;")
         )
-    # --- Suggestions Div (will be part of non-scrolling top area) ---
-    suggestions_div = Div(
-        *suggestion_buttons,
-        style="padding: 0 1rem; text-align: center; margin-bottom: 15px; flex-shrink: 0;",  # Don't shrink
+    # Create toggle button for mobile
+    toggle_button = Button(
+        "Show Suggestions ▼",
+        cls="suggestions-toggle",  # Styled via CSS
+        onclick="toggleSuggestions()",
+        # Minimal inline style maybe needed for JS initial state if CSS doesn't cover display:block on mobile initially
+        # style="display: block; ..." # CSS now handles this via media query
     )
 
-    # --- Internal Title Block (will be part of non-scrolling top area) ---
+    # --- Suggestions Div ---
+    suggestions_div = Div(
+        toggle_button,
+        Div(  # Container for the actual buttons
+            *suggestion_buttons,
+            id="suggestions-buttons",
+            # Style this container via CSS, especially in the media query
+            # style="margin-top: 10px; transition: max-height 0.3s ease-in-out;", # Keep transition if desired
+        ),
+        id="suggestions-container",
+        # Start collapsed - controlled by class and JS adds/removes it
+        cls="suggestions-collapsed",
+        # Basic structural style, appearance details in CSS
+        style="padding: 0 1rem; text-align: center; margin-bottom: 15px; flex-shrink: 0;",
+    )
+    # --- Internal Title Block (Uses CSS classes) ---
     title_block = Div(
         P(
             "Ask technical questions about Matrix laser products",
-            style="font-size: 1.3rem; color: #5f6368; margin-top: 0; margin-bottom: 0; font-weight: bold; font-style: italic;",
+            cls="page-title",  # Styled via CSS
         ),
-        style="text-align: center; margin-bottom: 15px; padding: 10px 0; flex-shrink: 0;",  # Don't shrink
+        cls="title-block",  # Styled via CSS
     )
-
-    # --- Main Chat Container - Flex Column, Fills Space, Manages Internal Overflow ---
-    return Div(  # id="chat-container"
+    # --- Main Chat Container ---
+    return Div(
         # --- Top Fixed Section ---
-        title_block,
-        suggestions_div,
+        title_block,  # Uses classes
+        suggestions_div,  # Uses classes
         # --- Middle Scrolling Section ---
         Div(  # Chat messages area
             Safe(
@@ -725,10 +683,8 @@ def chat_interface(request: Request):
                     "assistant",
                 )
             ),
-            # Messages appended here
             id="chat-messages",
-            # Style: Grow/shrink within parent flex, enable Y scrolling
-            style="flex: 1 1 auto; overflow-y: auto; padding: 0 15px; margin-bottom: 15px; /* border: 1px solid #eee; */ border-radius: 8px;",
+            style="flex: 1 1 auto; overflow-y: auto; padding: 0 15px; margin-bottom: 8px; border-radius: 8px;",
         ),
         # --- Bottom Fixed Section ---
         Div(  # Form and controls area
@@ -740,32 +696,32 @@ def chat_interface(request: Request):
                         name="query",
                         rows=1,
                         autofocus=True,
-                        style="width: 100%; box-sizing: border-box; padding: 14px 110px 14px 16px; font-size: 16px; color: #202124; border: 1px solid #dfe1e5; border-radius: 24px; resize: none; outline: none; box-shadow: none; height: 52px; margin: 0;",
+                        # Apply auto-grow class
+                        cls="auto-grow-textarea",
+                        style="width: 100%; box-sizing: border-box; padding: 14px 110px 14px 16px; font-size: 16px; color: #202124; border: 1px solid #dfe1e5; border-radius: 24px; resize: none; outline: none; box-shadow: none; /* height: 52px; remove fixed height */ margin: 0; overflow-y: hidden;",  # Added overflow hidden
                     ),
-                    # --- Button using correct syntax ---
+                    # --- Run/Stop Button (Structure is correct) ---
                     Button(
-                        Span(  # Outer Span (button-inner-content)
-                            Span(
-                                Span(cls="spinner-square"), cls="inline-spinner"
-                            ),  # Spinner Span
-                            Span("Run", cls="button-text run-text"),  # Run Text Span
-                            Span("Stop", cls="button-text stop-text"),  # Stop Text Span
-                            Span(" ⌘⏎", cls="button-icon cmd-icon"),  # Icon Span
-                            cls="button-inner-content",  # Keyword arg last
-                        ),  # End Outer Span
+                        Span(
+                            Span(Span(cls="spinner-square"), cls="inline-spinner"),
+                            Span("Run", cls="button-text run-text"),
+                            Span("Stop", cls="button-text stop-text"),
+                            Span(" ⌘⏎", cls="button-icon cmd-icon"),
+                            cls="button-inner-content",
+                        ),
                         type="submit",
                         id="run-stop-button",
                         cls="run-button-base",
-                        style="position: absolute; right: 6px; top: 50%; transform: translateY(-50%); overflow: hidden;",
-                        title="Submit query (⌘+⏎ or Ctrl+Enter)",  # Tooltip added
+                        style="position: absolute; right: 6px; bottom: 8px; /* Adjusted position to bottom */ transform: none; /* Remove translateY */ overflow: hidden;",
+                        title="Submit query (⌘+⏎ or Ctrl+Enter)",
                     ),
                     # --- End Button ---
-                    style="position: relative; display: block; margin-bottom: 10px; min-height: 52px;",
+                    style="position: relative; display: block; margin-bottom: 10px; min-height: 52px;",  # Keep min-height
                 ),  # End Input Row Div
                 hx_post="/send-message",
                 hx_target="#chat-messages",
                 hx_swap="beforeend",
-                hx_indicator="#chat-form",
+                hx_indicator="#chat-form",  # Indicator targets the form
                 id="chat-form",
             ),  # End Form
             Div(  # Reset button container
@@ -779,24 +735,20 @@ def chat_interface(request: Request):
                 ),
                 style="text-align: center; margin-bottom: 10px;",
             ),  # End Reset Div
-            # Style: Don't shrink, add padding/border
-            style="flex-shrink: 0; padding-top: 10px; border-top: 1px solid #f0f0f0;",
+            style="flex-shrink: 0; padding-top: 6px; border-top: 1px solid #f0f0f0;",
         ),  # End Form/Controls Area Div
         # --- Style for the main chat container itself ---
         style=(
-            "max-width: 900px; margin: 0 auto 20px auto;"  # Horizontal centering, bottom margin
+            "max-width: 900px; margin: 0 auto 20px auto;"
             " padding: 20px; background-color: white; border-radius: 12px;"
             " box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
-            " display: flex; flex-direction: column;"  # Use flex column for internal layout
-            " flex: 1 1 auto;"  # ★★★ Key: Grow/shrink to fill space from parent flex container ★★★
-            " overflow: hidden;"  # Hide overflow on this container, scroll happens in #chat-messages
-            # " border: 2px solid red;" # DEBUG: Uncomment to see container bounds
+            " display: flex; flex-direction: column;"
+            " flex: 1 1 auto;"
+            " overflow: hidden;"
         ),
         id="chat-container",
     )
-
-
-# --- Routes ---
+    # --- Routes ---
 
 
 # Route to serve images
@@ -812,47 +764,25 @@ async def get_image(filename: str):
         return Response("Image not found", status_code=404)
 
 
-# Main page route
-# @rt("/")
-# def get(request: Request):
-#     return Titled(  # Use Titled for browser tab and main H1 (default behavior)
-#         "Matrix Laser Technical Support",  # Title text
-#         # Main page content container
-#         Div(
-#             # Logo Section
-#             Div(
-#                 Img(
-#                     src="/images/Coherent_logo_blue.png",
-#                     alt="Coherent Logo",
-#                     style="height: 60px; width: auto; display: block; margin-left: 40px; margin-bottom: 10px; margin-top: 20px;",
-#                 ),
-#                 style="margin-bottom: 30px;",  # Spacing below logo area
-#             ),
-#             # Chat Interface Section
-#             chat_interface(request=request),  # Render the chat UI
-#         ),
-#     )
 @rt("/")
 def get(request: Request):
     return Titled(
         "Matrix Laser Technical Support",  # Browser tab title
-        # --- Main Page Container - Flex Column, STRICT Full Height ---
         Div(
-            # --- 1. Fixed Header Section ---
-            Div(  # Container for Logo
+            # --- 1. Fixed Header Section (Uses CSS classes) ---
+            Div(
                 Img(
                     src="/images/Coherent_logo_blue.png",
                     alt="Coherent Logo",
-                    style="height: 60px; width: auto; display: block; margin-left: 40px; margin-bottom: 10px; margin-top: 20px;",
+                    cls="header-logo",  # Styled via CSS
                 ),
-                # Prevent shrinking, give defined bottom margin
-                style="flex-shrink: 0; background-color: #f8f9fa;",  # Match body background
-            ),  # --- End Header Section ---
-            # --- 2. Chat Interface Section (Will be forced into remaining space) ---
-            chat_interface(request=request),
+                cls="logo-container",  # Styled via CSS
+            ),
+            # --- 2. Chat Interface Section ---
+            chat_interface(request=request),  # Uses classes internally now
             # Style for the main page container
-            style="display: flex; flex-direction: column; height: 100vh; background-color: #f8f9fa; overflow: hidden;",  # STRICT height: 100vh, overflow hidden
-        ),  # --- End Main Page Container ---
+            style="display: flex; flex-direction: column; height: 100dvh; background-color: #f8f9fa; overflow: hidden;",
+        ),
     )
 
 
@@ -944,8 +874,17 @@ if __name__ == "__main__":
     print(f"Production Mode: {in_production}")
     print(f"Uvicorn Reload: {reload_status}")
     serve(reload=reload_status)
-    # Set the host to 127.0.0.1 explicitly
-    # import uvicorn
 
-    # uvicorn.run("main:app", host="127.0.0.1", port=5001, reload=reload_status)
-# --- END OF FILE main.py ---
+# --- Server Start ---
+# if __name__ == "__main__":
+#     in_production = os.environ.get("PLASH_PRODUCTION") == "1"
+#     reload_status = not in_production
+#     port = 5001  # Keep consistent port
+#     host = "127.0.0.1"
+#     print("\n--- Starting Server ---")
+#     print(f"Production Mode: {in_production}")
+#     print(f"Uvicorn Reload: {reload_status}")
+#     print(f"Access URL: http://{host}:{port}")
+
+#     # Use fasthtml's serve() which wraps uvicorn correctly
+#     serve(host=host, port=port, reload=reload_status)
