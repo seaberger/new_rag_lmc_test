@@ -37,8 +37,9 @@ favicon_link = Link(
 )
 
 # Setup logging
+in_production = os.environ.get("PLASH_PRODUCTION") == "1"
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO if in_production else logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 # --- Constants ---
@@ -129,14 +130,16 @@ def simple_message_html(content, role):
     if not is_user:
         # Process markdown for assistant messages
         cleaned_content = content  # Initialize cleaned_content first
+        logging.debug(f"[Markdown Pre-Clean] Raw content: {content[:100]}...") 
         cleaned_content = re.sub(r"```\s*\n\s*```", "", cleaned_content)
-        cleaned_content = re.sub(r"```[a-z]*\s*\n\s*```", "", cleaned_content)
+        logging.debug(f"[Markdown Post-Clean] Cleaned content: {cleaned_content[:100]}...") 
         try:
             from mistletoe import Document, HTMLRenderer
 
             doc = Document(cleaned_content)
             renderer = HTMLRenderer()
             content_html = renderer.render(doc)
+            logging.debug(f"[Markdown Post-Render] Rendered HTML: {content_html[:100]}...") 
             content_html = re.sub(
                 r"<pre>\s*<code>\s*</code>\s*</pre>", "", content_html
             )

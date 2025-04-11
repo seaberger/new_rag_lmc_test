@@ -61,8 +61,22 @@ function appendToStream(chunk) {
     // Accumulate the raw text chunk
     accumulatedMarkdown += chunk;
 
-    // Display the raw text chunk directly using textContent
-    currentStreamTarget.textContent += chunk; 
+    // --- Render incrementally for visual streaming --- 
+    if (currentStreamTarget) {
+        // 1. Convert Markdown bold to HTML strong tags
+        let formattedText = accumulatedMarkdown.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // 2. Convert newlines to paragraphs/breaks (simplified for streaming)
+        //    Using <br> for all newlines during streaming is visually okay.
+        //    We could refine paragraph logic here if needed, but <br> is simpler.
+        formattedText = formattedText.replace(/\n/g, '<br>'); 
+        
+        // Update the innerHTML with the processed content so far
+        currentStreamTarget.innerHTML = formattedText; 
+        
+        // Optional: Keep scrolled to bottom if needed
+        // currentStreamTarget.parentElement.parentElement.scrollIntoView({ behavior: 'smooth', block: 'end' }); 
+    }
 }
 
 // --- End Stream ---
@@ -80,15 +94,15 @@ function endStream() {
         console.log('endStream called when stream was not active.');
         return;
     } else {
-        // Normal end: Format the accumulated text
-        console.log('Stream ended. Final accumulated text:', accumulatedMarkdown);
-        if (accumulatedMarkdown) {
-            const formattedText = accumulatedMarkdown
-                .replace(/\n\n/g, '</p><p>')  // Double newlines -> paragraph breaks
-                .replace(/\n/g, '<br>');      // Single newlines -> line breaks
-            currentStreamTarget.innerHTML = `<p>${formattedText}</p>`; // Set final formatted HTML
-        } else {
-             currentStreamTarget.innerHTML = `<p style="font-style: italic; color: #888;">No response content received.</p>`;
+        // Normal end: Formatting is now done incrementally in appendToStream.
+        // We can log the final accumulated text for debugging if needed.
+        console.log('Stream ended. Final accumulated text (raw):', accumulatedMarkdown);
+        // Optional: Could do a final, more robust formatting pass here if the incremental one is imperfect.
+        // e.g., ensure it's wrapped in <p> tags properly if needed based on final content.
+        if (currentStreamTarget && !currentStreamTarget.innerHTML.startsWith('<p>')) {
+             // Basic check: Wrap if not already in a paragraph
+             // Note: The incremental rendering might already handle this implicitly
+             // currentStreamTarget.innerHTML = `<p>${currentStreamTarget.innerHTML}</p>`; 
         }
     }
 
