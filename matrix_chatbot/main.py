@@ -5,21 +5,22 @@ from fasthtml.common import *
 
 from fasthtml import FastHTML
 from fastapi import Request, Response
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from monsterui.all import *
 import os
 import re
 import json
 import logging
-import asyncio
+# asyncio removed as it's no longer needed for the simplified reset function
+# datetime removed as it's no longer needed
 from uuid import uuid4
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
 
 # Import chat engine functions
-from chat_engine import init_chat_engine, generate_streaming_response
+from chat_engine import init_chat_engine, generate_response
 
 # Create images directory if it doesn't exist
 images_dir = Path("./images")
@@ -37,9 +38,8 @@ favicon_link = Link(
 )
 
 # Setup logging
-in_production = os.environ.get("PLASH_PRODUCTION") == "1"
 logging.basicConfig(
-    level=logging.INFO if in_production else logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 # --- Constants ---
@@ -98,10 +98,12 @@ async def lifespan(app: FastHTML):
     # Application shutdown: Clean up Langfuse instrumentor
     if hasattr(app.state, "langfuse_instrumentor") and app.state.langfuse_instrumentor:
         try:
-            logging.info("Flushing Langfuse events on shutdown...")
-            app.state.langfuse_instrumentor.flush()
+            logging.info("Shutting down Langfuse instrumentor on exit...")
+            # Use shutdown instead of flush for cleaner exit
+            app.state.langfuse_instrumentor.shutdown(timeout=5)
+            logging.info("Langfuse instrumentor shut down.")
         except Exception as e:
-            logging.error(f"Error flushing Langfuse events: {e}")
+            logging.error(f"Error shutting down Langfuse instrumentor: {e}")
 
     logging.info("Application shutdown.")
 
@@ -130,16 +132,14 @@ def simple_message_html(content, role):
     if not is_user:
         # Process markdown for assistant messages
         cleaned_content = content  # Initialize cleaned_content first
-        logging.debug(f"[Markdown Pre-Clean] Raw content: {content[:100]}...") 
         cleaned_content = re.sub(r"```\s*\n\s*```", "", cleaned_content)
-        logging.debug(f"[Markdown Post-Clean] Cleaned content: {cleaned_content[:100]}...") 
+        cleaned_content = re.sub(r"```[a-z]*\s*\n\s*```", "", cleaned_content)
         try:
             from mistletoe import Document, HTMLRenderer
 
             doc = Document(cleaned_content)
             renderer = HTMLRenderer()
             content_html = renderer.render(doc)
-            logging.debug(f"[Markdown Post-Render] Rendered HTML: {content_html[:100]}...") 
             content_html = re.sub(
                 r"<pre>\s*<code>\s*</code>\s*</pre>", "", content_html
             )
@@ -282,10 +282,8 @@ async def chat_interface(request: Request):
             Div(  # Reset button container
                 Button(
                     "Reset Chat",
-                    hx_post="/reset-chat",
-                    hx_target="#chat-container",
-                    hx_swap="innerHTML",
-                    hx_confirm="Are you sure?",
+                    id="reset-chat-button", # Use ID instead of HTMX attributes
+                    # HTMX attributes removed - will use manual JavaScript handling
                     style="background-color: #f1f3f4; color: #5f6368; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; font-weight: 500; height: 36px; line-height: 20px;",
                 ),
                 style="text-align: center; margin-bottom: 10px;",
@@ -344,96 +342,169 @@ async def get(request: Request):
 @rt("/stream-message")
 async def stream_message(request: Request):
     """Stream a response to a query"""
+    # ---> START DEBUG LOGGING <---
+    request_id = str(uuid4())  # Unique ID for this specific request
+    logging.info(f"[{request_id}] ===> Received request for /stream-message")
+    logging.info(f"[{request_id}] Headers: {dict(request.headers)}")
+    logging.info(f"[{request_id}] Query Params: {dict(request.query_params)}")
+
     query = request.query_params.get("query", "").strip()
+    logging.info(f"[{request_id}] Extracted Query: '{query}' (Length: {len(query)})")
+
+    # Check app state immediately
+    chat_engine = getattr(request.app.state, "chat_engine", None)
+    instrumentor = getattr(request.app.state, "langfuse_instrumentor", None)
+    session_id = getattr(request.app.state, "session_id", "UNKNOWN")
+
+    logging.info(f"[{request_id}] App State Check:")
+    logging.info(f"[{request_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
+    logging.info(f"[{request_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(f"[{request_id}]   Current Session ID: {session_id}")
+    # ---> END DEBUG LOGGING <---
+    
     if not query:
+        logging.warning(f"[{request_id}] Query is empty, returning 400.")
         return Response("Query is required", status_code=400)
 
-    chat_engine = getattr(request.app.state, "chat_engine", None)
-
     if chat_engine is None:
+        logging.error(f"[{request_id}] Chat engine not available in app state, returning 503.")
         return Response("Chat engine not available", status_code=503)
 
-    # Process chunks from markdown to HTML on the fly
-    async def process_stream():
+    # Process the response and format for the frontend
+    async def process_response():
         try:
-            # Process stream without complex instrumentation
-            async for text_chunk in generate_streaming_response(query, chat_engine):
-                # Convert markdown chunk to HTML
-                try:
-                    # Assuming text_chunk is a dict like {'type': 'content', 'content': '...'}
-                    # or similar structure yielded by generate_streaming_response
-                    if isinstance(text_chunk, dict):
-                        chunk_type = text_chunk.get("type")
-                        content = text_chunk.get("content", "")
-                        if chunk_type == "content":
-                            # Yield raw content directly as plain text
-                            yield content
-                        elif chunk_type == "sources":
-                            # Handle sources if needed, maybe format them at the end
-                            pass  # Or yield formatted source info
-                        elif chunk_type == "error":
-                            # Yield error message as plain text
-                            yield f"Error: {content}"
-                    else:
-                        # Fallback for plain text chunks (if any)
-                        yield str(text_chunk)
-
-                except Exception as chunk_error:
-                    logging.error(
-                        f"Error processing stream chunk: {chunk_error}", exc_info=True
-                    )
-                    # Yield error message to the client
-                    yield "Error processing part of the response."
-
-            # Yield a minimal delay to avoid overwhelming the browser
-            await asyncio.sleep(0.01)
-
-            # Send a final [DONE] signal
-            yield "[DONE]"
+            # Get the instrumentor from app state to ensure proper trace isolation
+            langfuse_instrumentor = getattr(request.app.state, "langfuse_instrumentor", None)
+            logging.info(f"[{request_id}] Langfuse instrumentor in process_response: {id(langfuse_instrumentor) if langfuse_instrumentor else 'None'}")
+            
+            # Call response generation function
+            logging.info(f"[{request_id}] Calling generate_response function...")
+            response_data = await generate_response(query, chat_engine, instrumentor=langfuse_instrumentor)
+            logging.info(f"[{request_id}] Response generation successful.")
+            
+            # Format the response
+            if response_data.get("error", False):
+                return f"Error: {response_data.get('response', 'Unknown error')}\n[DONE]"
+            
+            # Get main response text
+            full_response = response_data.get('response', '')
+            
+            # Sources are tracked in Langfuse but not displayed to the user
+            # We keep the sources data in the response_data for tracing purposes, 
+            # but no longer append them to the displayed text
+            
+            # Return the response without a completion marker
+            return full_response
 
         except Exception as e:
-            logging.error(f"Error streaming response: {e}", exc_info=True)
-            # Return error message to the client
-            yield f"Error processing your request: {str(e)}"
-            # Also send [DONE] after an error
-            yield "[DONE]"
+            logging.error(f"Error generating response: {e}", exc_info=True)
+            return f"Error processing your request: {str(e)}"
 
-    # Return streaming response
-    return StreamingResponse(
-        process_stream(),
-        media_type="text/plain",
-    )
+    # Get and return the complete response
+    try:
+        logging.info(f"[{request_id}] Calling process_response...")
+        result = await process_response()
+        logging.info(f"[{request_id}] Process response successful. Response length: {len(result)}")
+        return Response(
+            content=result,
+            media_type="text/plain",
+        )
+    except Exception as e:
+        logging.error(f"[{request_id}] Error in top-level handler: {e}", exc_info=True)
+        return Response(f"Server error: {str(e)}", status_code=500)
 
 
-# Reset chat route - now async
+# Reset chat route - now async with more thorough state cleanup
 @rt("/reset-chat", methods=["POST"])
 async def reset_chat(request: Request):
+    # ---> START DEBUG LOGGING <---
+    reset_id = str(uuid4())  # Unique ID for this specific reset operation
+    logging.info(f"[{reset_id}] ===> Received request for /reset-chat")
+    logging.info(f"[{reset_id}] Headers: {dict(request.headers)}")
+    
+    # Log initial app state
     chat_engine = getattr(request.app.state, "chat_engine", None)
+    instrumentor = getattr(request.app.state, "langfuse_instrumentor", None)
+    previous_session_id = getattr(request.app.state, "session_id", "UNKNOWN")
+    
+    logging.info(f"[{reset_id}] Initial App State Before Reset:")
+    logging.info(f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
+    logging.info(f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(f"[{reset_id}]   Current Session ID: {previous_session_id}")
+    # ---> END DEBUG LOGGING <---
 
+    engine_reset = False
+    trace_reset = False
+
+    # 1. Reset Chat Engine Memory
     if chat_engine:
         try:
-            logging.info("Resetting chat engine memory...")
-
-            # Reset chat engine memory
+            logging.info(f"[{reset_id}] Resetting chat engine memory...")
+            
+            # Log the type of reset we're doing (async or sync)
             if hasattr(chat_engine, "areset"):
-                await chat_engine.areset()  # Use async reset if available
+                logging.info(f"[{reset_id}] Using async reset (areset)")
+                await chat_engine.areset()
             else:
-                chat_engine.reset()  # Fallback to sync reset
-
-            # Create a new session ID for future interactions
-            request.app.state.session_id = f"session-{uuid4()}"
-
-            logging.info("Chat engine memory reset.")
+                logging.info(f"[{reset_id}] Using sync reset (reset)")
+                chat_engine.reset()
+                
+            logging.info(f"[{reset_id}] Chat engine memory reset successfully.")
+            engine_reset = True
         except Exception as e:
-            logging.error(f"Error resetting chat engine: {e}", exc_info=True)
-
-            # No trace error
-
+            logging.error(f"[{reset_id}] Error resetting chat engine: {e}", exc_info=True)
     else:
-        logging.warning("Reset attempted, but chat engine not available.")
+        logging.warning(f"[{reset_id}] Reset attempted, but chat engine not available.")
 
-    # Return fresh interface after reset
-    return await chat_interface(request=request)
+    # 2. Flush Langfuse Context (SIMPLIFIED)
+    #    Just ensure any data from the *previous* session is sent.
+    #    DO NOT try to manually clear internal state like _current_trace.
+    if instrumentor:
+        try:
+            logging.info(f"[{reset_id}] Flushing Langfuse instrumentor during reset...")
+            if hasattr(instrumentor, "flush"):
+                instrumentor.flush()
+                logging.info(f"[{reset_id}] Langfuse flush during reset completed.")
+                trace_reset = True
+            else:
+                logging.warning(f"[{reset_id}] Instrumentor has no flush method!")
+        except Exception as e:
+            logging.error(f"[{reset_id}] Error flushing Langfuse instrumentor during reset: {e}", exc_info=True)
+    else:
+        logging.warning(f"[{reset_id}] Reset attempted, but Langfuse instrumentor not available.")
+
+    # Update session ID regardless to get a fresh trace context for future operations
+    new_session_id = f"session-{uuid4()}"
+    request.app.state.session_id = new_session_id
+    logging.info(f"[{reset_id}] Session ID changed from {previous_session_id} to {new_session_id}")
+    
+    # Reset any pending state flags
+    if hasattr(request.app.state, "processing_query"):
+        old_value = request.app.state.processing_query
+        request.app.state.processing_query = False
+        logging.info(f"[{reset_id}] Reset processing_query flag from {old_value} to False")
+    else:
+        logging.info(f"[{reset_id}] No processing_query flag found in app state")
+        
+    # Log final app state after reset
+    logging.info(f"[{reset_id}] Final App State After Reset:")
+    logging.info(f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
+    logging.info(f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(f"[{reset_id}]   New Session ID: {new_session_id}")
+
+    # Base success primarily on the engine reset status
+
+    logging.info(f"[{reset_id}] Reset completed - Engine Reset: {engine_reset}, Trace Reset: {trace_reset}, New Session: {new_session_id}")
+
+    # Redirect to force clean page load
+    # Use 303 See Other with HX-Refresh to ensure HTMX triggers a full page reload
+    from starlette.responses import RedirectResponse
+    
+    # Create headers with HX-Refresh to instruct HTMX to refresh the page
+    headers = {"HX-Refresh": "true"}
+    
+    logging.info(f"[{reset_id}] Sending 303 Redirect with HX-Refresh header to force HTMX to reload the page")
+    return RedirectResponse(url="/", status_code=303, headers=headers)
 
 
 # Start the server
