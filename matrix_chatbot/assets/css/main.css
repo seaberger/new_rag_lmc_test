@@ -1,52 +1,467 @@
-/* === MAIN LAYOUT & TYPOGRAPHY === */
-body {
-    background-color: #f8f9fa;
-    font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+/* 1. Define CSS Variables (Light Theme Defaults) */
+:root {
+  --bg-color: #f8f9fa;                 /* Light gray page background */
+  --text-color: #202124;               /* Dark text */
+  --text-secondary-color: #5f6368;     /* Lighter text (titles, placeholders) */
+  --primary-accent: #1a73e8;           /* Blue accent (buttons, links) */
+  --primary-accent-text: white;        /* Text on primary accent */
+  --primary-accent-hover: #185abc;       /* Hover for primary accent */
+  --border-color: #dfe1e5;             /* Input borders, separators */
+  --card-bg: white;                    /* Chat container background */
+  --card-shadow: rgba(0, 0, 0, 0.05);
+  --bubble-bg-assistant: #f1f3f4;      /* Assistant message background */
+  --bubble-text-assistant: #202124;    /* Text in assistant bubble */
+  --bubble-bg-user: white;             /* User message background (often same as card-bg) */
+  --bubble-text-user: #202124;         /* Text in user bubble */
+  --bubble-shadow: rgba(0, 0, 0, 0.1);
+  --button-secondary-bg: #f1f3f4;      /* Reset button, Suggestion button bg */
+  --button-secondary-text: #1a73e8;    /* Suggestion button text */
+  --button-secondary-text-alt: #5f6368; /* Reset button text color */
+  --button-secondary-hover-bg: #e8f0fe; /* Suggestion button hover */
+  --link-color: #1a73e8;                /* Markdown links */
+  --code-bg: #f1f3f4;                  /* Code block background */
+  --code-text: #202124;                /* Code text color */
+  --code-font: 'Roboto Mono', monospace;/* Code font family */
+  --table-header-bg: #f1f3f4;          /* Table header */
+  --table-border-color: #e0e0e0;        /* Table borders */
+  --header-bg: #f8f9fa;                /* Header background */
+  --header-shadow: none;               /* Header shadow (optional) */
+  --shadow-light: rgba(0, 0, 0, 0.1);  /* Suggestion button shadow */
+  --shadow-medium: rgba(0, 0, 0, 0.2); /* Suggestion toggle shadow */
+
+  /* Spinner Specific */
+  --spinner-color: var(--primary-accent);           /* Spinner color on light bg */
+  --spinner-track-color: var(--shadow-light);       /* Track for global spinner */
+  --spinner-on-button-color: var(--primary-accent-text); /* Spinner color on primary button */
+  --spinner-on-button-track-color: rgba(255, 255, 255, 0.3); /* Track on primary button */
 }
 
-/* --- General Content Styling --- */
+/* 3. Define Dark Theme Overrides */
+html[data-theme="dark"] {
+  --bg-color: #121212;                 /* Darker background for better contrast */
+  --text-color: #e0e0e0;
+  --text-secondary-color: #a0a0a0;
+  --primary-accent: #64b5f6;           /* Lighter blue */
+  --primary-accent-text: #121212;      /* Dark text on light blue */
+  --primary-accent-hover: #82c2ff;     /* Lighter hover */
+  --border-color: #555;                /* Make border slightly lighter (#444 -> #555) */
+  --card-bg: #1e1e1e;                  /* Slightly darker than original */
+  --card-shadow: rgba(0, 0, 0, 0.4);   /* Deeper shadow */
+  --bubble-bg-assistant: #292929;      /* More distinct assistant bubble */
+  --bubble-text-assistant: #e0e0e0;
+  --bubble-bg-user: #0e3658;           /* Blue-tinted user bubble for distinction */
+  --bubble-text-user: #e0e0e0;
+  --bubble-shadow: rgba(0, 0, 0, 0.4);
+  --button-secondary-bg: #3a414d;      /* Slightly Lighter background than before (#2c3440) */
+  --button-secondary-text: #64b5f6;    /* Suggestion text */
+  --button-secondary-text-alt: #e0e0e0;/* Keep text light */
+  --button-secondary-hover-bg: #4f5864; /* Adjust hover accordingly */
+  --link-color: #64b5f6;
+  --code-bg: #2b2b2b;                  /* Adjusted code background */
+  --code-text: #e0e0e0;
+  --table-header-bg: #2d2d2d;          /* Adjusted table header */
+  --table-border-color: #555;
+  --header-bg: #1a1a1a;                /* Darker header */
+  --header-shadow: rgba(0, 0, 0, 0.4);
+  --shadow-light: rgba(0, 0, 0, 0.3);
+  
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  --shadow-medium: rgba(0, 0, 0, 0.4);
+
+  /* Spinner Specific */
+  --spinner-color: var(--primary-accent);
+  --spinner-track-color: rgba(255, 255, 255, 0.1); /* Light track on dark */
+  --spinner-on-button-color: var(--primary-accent-text); /* Dark color on light blue button */
+  --spinner-on-button-track-color: rgba(0, 0, 0, 0.3); /* Darker track on light blue button */
+
+  /* Optional: Filter logo for dark mode if needed */
+  /* .header-logo { filter: invert(1) hue-rotate(180deg); } */
+}
+
+/* 4. System Preference Media Query */
+@media (prefers-color-scheme: dark) {
+  /* Apply dark theme variables *only* when theme is 'system' */
+  html[data-theme="system"] {
+    background-color: #1f1f1f;
+    color: #e0e0e0;
+    --bg-color: #1f1f1f;
+    --text-color: #e0e0e0;
+    --text-secondary-color: #a0a0a0;
+    --primary-accent: #64b5f6;
+    --primary-accent-text: #121212;
+    --primary-accent-hover: #82c2ff;
+    --border-color: #444;
+    --card-bg: #2a2a2a;
+    --card-shadow: rgba(0, 0, 0, 0.3);
+    --bubble-bg-assistant: #3c3c3c;
+    --bubble-text-assistant: #e0e0e0;
+    --bubble-bg-user: #2a2a2a;
+    --bubble-text-user: #e0e0e0;
+    --bubble-shadow: rgba(0, 0, 0, 0.3);
+    --button-secondary-bg: #444;
+    --button-secondary-text: #64b5f6;
+    --button-secondary-text-alt: #e0e0e0;
+    --button-secondary-hover-bg: #555;
+    --link-color: #64b5f6;
+    --code-bg: #383838;
+    --code-text: #e0e0e0;
+    --table-header-bg: #3c3c3c;
+    --table-border-color: #555;
+    --header-bg: #2a2a2a;
+    --header-shadow: rgba(0, 0, 0, 0.3);
+    --shadow-light: rgba(0, 0, 0, 0.3);
+    --shadow-medium: rgba(0, 0, 0, 0.4);
+
+    /* Spinner Specific */
+    --spinner-color: var(--primary-accent);
+    --spinner-track-color: rgba(255, 255, 255, 0.1);
+    --spinner-on-button-color: var(--primary-accent-text);
+    --spinner-on-button-track-color: rgba(0, 0, 0, 0.3);
+
+    /* .header-logo { filter: invert(1) hue-rotate(180deg); } */
+  }
+}
+
+/* --- 2. Refactor Existing Styles --- */
+
+/* === MAIN LAYOUT & TYPOGRAPHY === */
+html {
+    height: 100%; /* Important for percentage heights on body */
+    transition: background-color 0.3s, color 0.3s;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh; /* Ensures body covers viewport height AT LEAST */
+    height: auto; /* Let body height grow with content */
+    transition: background-color 0.2s, color 0.2s;
+}
+
+/* Main content area */
+#main-content-area {
+    display: block; /* Normal block flow */
+    background-color: var(--bg-color);
+    transition: background-color 0.2s;
+}
+
+/* Chat Container */
+#chat-container {
+    max-width: 900px;
+    margin: 20px auto 20px auto; /* Restore top/bottom margin */
+    padding: 20px;
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px var(--card-shadow);
+    
+    /* Use Flexbox for internal layout */
+    display: flex;
+    flex-direction: column;
+    
+    /* Constrain Max Height - Allows Page Scroll if Exceeded */
+    max-height: calc(100vh - 120px); /* Reduced maximum height to prevent reset button clipping */
+    height: auto; /* Let height grow up to max-height */
+    
+    transition: background-color 0.2s, box-shadow 0.2s;
+}
+
+/* Chat Messages Area */
+#chat-messages {
+    flex: 1 1 auto; /* Takes up remaining space WITHIN #chat-container */
+    min-height: 100px; /* Give it a minimum height to prevent collapse */
+    overflow-y: auto; /* Enable INTERNAL scrolling */
+    padding: 0 15px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+    background-color: var(--card-bg);
+    transition: background-color 0.2s, color 0.2s;
+    /* Scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-secondary-color) var(--card-bg);
+}
+
+/* Webkit scrollbar styling */
+#chat-messages::-webkit-scrollbar {
+    width: 8px;
+}
+#chat-messages::-webkit-scrollbar-track {
+    background: var(--card-bg);
+    border-radius: 4px;
+}
+#chat-messages::-webkit-scrollbar-thumb {
+    background-color: var(--text-secondary-color);
+    border-radius: 4px;
+    border: 2px solid var(--card-bg); /* Creates padding around thumb */
+}
+
+/* Message Container & Bubbles */
+.message-container {
+    display: flex;
+    margin: 16px 0;
+    transition: background-color 0.2s, color 0.2s;
+    width: 100%;
+}
+
+.message-container.assistant {
+    justify-content: flex-start;
+}
+
+.message-container.user {
+    justify-content: flex-end;
+}
+
+.message-bubble {
+    max-width: 85%;
+    padding: 10px 15px; /* Fine-tune padding */
+    border-radius: 18px;
+    box-shadow: 0 1px 1px var(--bubble-shadow);
+    transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, border-color 0.2s;
+    /* Removed display: inline-block & width: auto */
+    border: 1px solid transparent;
+    overflow: hidden; /* Still needed for complex content */
+    box-sizing: border-box;
+}
+
+.message-container.assistant .message-bubble {
+    background-color: var(--bubble-bg-assistant);
+    color: var(--bubble-text-assistant);
+    border-top-left-radius: 6px;
+    transition: background-color 0.2s, color 0.2s;
+    /* Removed margin-left since we're using gap in the container */
+}
+
+.message-container.assistant {
+    display: flex; /* Keep as flex container */
+    align-items: flex-start; /* Align items to the top */
+    gap: 8px; /* Space between icon and bubble */
+    margin: 10px 0;
+    /* Removed position: relative and padding-left */
+}
+
+.message-container.assistant .atom-icon {
+    /* Removed position: absolute, left, top */
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0; /* Prevent icon from shrinking */
+    margin-top: 2px; /* Align with first line of text */
+}
+
+.message-container.user .message-bubble {
+    background-color: var(--button-secondary-bg);
+    color: var(--button-secondary-text);
+    border-top-right-radius: 6px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+/* Dark mode message bubble styles - direct styling for better control */
+html[data-theme="dark"] .message-container.user .message-bubble {
+    background-color: var(--button-secondary-bg);
+    color: var(--button-secondary-text);
+    border-color: transparent;
+    box-shadow: 0 1px 2px var(--bubble-shadow);
+}
+
+html[data-theme="dark"] .message-container.assistant .message-bubble {
+    background-color: var(--bubble-bg-assistant);
+    color: var(--bubble-text-assistant);
+    border-color: transparent;
+    box-shadow: 0 1px 2px var(--bubble-shadow);
+}
+
+
+
+html[data-theme="dark"] #chat-container {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px var(--card-shadow);
+}
+
+html[data-theme="dark"] body {
+    background-color: #1f1f1f;
+}
+
+html[data-theme="dark"] html {
+    background-color: #1f1f1f;
+}
+
+html[data-theme="dark"] #main-content-area {
+    background-color: #1f1f1f;
+}
+
+html[data-theme="dark"] .title-block {
+    background-color: #1f1f1f;
+    border: none;
+}
+
+html[data-theme="dark"] #suggestions-container {
+    background-color: #1f1f1f;
+    border: none;
+}
+
+html[data-theme="dark"] #chat-messages {
+    background-color: var(--card-bg);
+    border: none;
+}
+
+html[data-theme="dark"] #chat-form-area {
+    border-top: 1px solid var(--border-color);
+    background-color: var(--card-bg);
+}
+
+/* Handle borders consistently in dark mode */
+html[data-theme="dark"] #chat-container,
+html[data-theme="dark"] #chat-messages,
+html[data-theme="dark"] .auto-grow-textarea,
+html[data-theme="dark"] .suggestion-btn,
+html[data-theme="dark"] .title-block {
+    border-color: var(--border-color);
+}
+
+/* All suggestion button styling is handled by variables and the specific selectors above */
+
+.message-content {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.5; /* Keep standard line height */
+    max-width: 100%;
+}
+
+.message-content p {
+    margin-top: 0;
+    margin-bottom: 0;
+    line-height: 1.2; /* Tighter line height for paragraph text */
+}
+/* Add these to handle markdown paragraphs better */
+.message-content p:first-child {
+    margin-top: 0;
+}
+.message-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Temporary debug borders to diagnose welcome bubble height issues */
+.message-container.assistant.debug-borders {
+    border: 1px solid red;
+}
+.message-container.assistant.debug-borders .message-bubble {
+    border: 1px solid blue;
+}
+.message-container.assistant.debug-borders .message-content {
+    border: 1px solid green;
+}
+.message-container.assistant.debug-borders .message-content p {
+    border: 1px solid purple;
+}
+
+/* Form & Controls Area */
+#chat-form-area {
+    flex-shrink: 0; /* Prevent from shrinking */
+    padding-top: 10px;
+    padding-bottom: 5px;
+    border-top: 1px solid var(--border-color);
+    transition: border-color 0.2s;
+    position: relative; /* Keep stacking context */
+}
+
+.input-row {
+    position: relative;
+    display: block;
+    margin-bottom: 8px; /* Reduced space below input */
+    min-height: 52px; /* Ensure space for button */
+}
+
+/* Text Area */
+.auto-grow-textarea {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    width: 100%;
+    box-sizing: border-box;
+    padding: 14px 110px 14px 16px; /* Right padding for button */
+    font-size: 16px;
+    border-radius: 24px;
+    resize: none;
+    outline: none;
+    box-shadow: none;
+    margin: 0;
+    overflow-y: hidden; /* Managed by JS */
+    transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+.auto-grow-textarea::placeholder {
+    color: var(--text-secondary-color);
+    opacity: 0.8;
+}
+.auto-grow-textarea:focus {
+    border-color: var(--primary-accent);
+    box-shadow: 0 0 0 2px rgba(var(--primary-accent), 0.2); /* Focus ring */
+}
+
+
+/* --- General Content Styling (Uses Variables) --- */
 pre {
-    background-color: #f1f3f4;
+    background-color: var(--code-bg);
+    color: var(--code-text); /* Ensure code text color is set */
     padding: 1rem;
     border-radius: 0.5rem;
     overflow-x: auto;
     font-size: 0.9rem;
     margin: 1rem 0;
+    font-family: var(--code-font);
 }
 code {
-    color: #202124;
-    font-family: 'Roboto Mono', monospace;
+    color: var(--code-text);
+    font-family: var(--code-font);
     font-size: 0.9em;
+    /* Inline code specific styles */
+    background-color: var(--code-bg);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
 }
+pre code {
+    /* Reset styles for code inside pre blocks */
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit; /* Inherit font size from pre */
+}
+
 p {
     line-height: 1.5;
-    margin: 0.5em 0;
+    margin: 0.5em 0; /* Keep default paragraph spacing */
+    color: var(--text-color); /* Set default text color */
 }
 h1, h2, h3, h4, h5, h6 {
-    color: #202124;
+    color: var(--text-color);
     margin-top: 1.5rem;
     margin-bottom: 0.5rem;
 }
-ul, ol { padding-left: 1.5rem; margin: 0.75rem 0; }
+ul, ol { padding-left: 1.5rem; margin: 0.75rem 0; color: var(--text-color);}
 li { margin-bottom: 0.5rem; }
 table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-th, td { border: 1px solid #e0e0e0; padding: 0.5rem; text-align: left; }
-th { background-color: #f1f3f4; }
-a { color: #1a73e8; text-decoration: none; }
+th, td { border: 1px solid var(--table-border-color); padding: 0.5rem; text-align: left; color: var(--text-color);}
+th { background-color: var(--table-header-bg); }
+a { color: var(--link-color); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /* === HEADER AND LOGO === */
 .logo-container {
-    text-align: center;
-    padding: 15px 0;
-    background-color: #f8f9fa;
+    background-color: var(--header-bg);
+    padding: 10px 20px;
+    box-shadow: 0 1px 3px var(--header-shadow);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     flex-shrink: 0;
-    margin-bottom: 10px;
+    /* margin-bottom: 10px; REMOVED - handled by flex layout */
 }
 .header-logo {
-    max-width: 150px;
-    height: auto;
-    display: inline-block;
+    height: 35px;
+    width: auto;
+    display: inline-block; /* Changed from inline-block to block or flex item */
     vertical-align: middle;
 }
 
@@ -54,17 +469,36 @@ a:hover { text-decoration: underline; }
 .title-block {
     text-align: center;
     margin-bottom: 15px;
-    padding: 5px 0;
+    padding: 5px 15px; /* Add horizontal padding */
     flex-shrink: 0;
+    background-color: var(--card-bg);
+    transition: background-color 0.2s;
 }
 .page-title {
     font-size: 1.0rem;
-    color: #5f6368;
+    color: var(--text-secondary-color);
     margin: 0;
     font-weight: bold;
     font-style: italic;
 }
 
+#suggestions-container {
+   padding: 0 1rem;
+   text-align: center;
+   margin-bottom: 15px;
+   flex-shrink: 0;
+   background-color: var(--card-bg);
+   transition: background-color 0.2s;
+}
+
+#suggestions-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+}
+
+/* Restore auto-grow-textarea that was accidentally removed */
 .auto-grow-textarea {
     resize: none;
     overflow-y: hidden;
@@ -72,36 +506,41 @@ a:hover { text-decoration: underline; }
 
 .suggestion-btn {
     display: inline-block;
-    color: #1a73e8;
-    background-color: #f1f3f4;
+    color: var(--button-secondary-text);
+    background-color: var(--button-secondary-bg);
     margin: 0.4rem;
     padding: 0.6rem 1rem;
-    border: none;
+    border: none; /* Or use border: 1px solid var(--border-color); */
     border-radius: 24px;
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 500;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 2px var(--shadow-light);
     transition: background-color 0.2s;
 }
 .suggestion-btn:hover {
-    background-color: #e8f0fe;
+    background-color: var(--button-secondary-hover-bg);
 }
 
 .suggestions-toggle {
-    background-color: #1a73e8;
-    color: white;
-    border: none;
+    /* Merged styles */
+    background-color: var(--button-secondary-bg);
+    color: var(--button-secondary-text-alt); /* Use alt color */
+    border: 1px solid var(--border-color);
     border-radius: 20px;
     padding: 8px 16px;
     font-size: 1rem;
     cursor: pointer;
     margin: 10px auto;
-    display: none;
+    display: none; /* Hidden by default, shown in media query */
     font-weight: bold;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px var(--shadow-medium);
     width: 80%;
     text-align: center;
+    transition: background-color 0.2s, color 0.2s;
+}
+.suggestions-toggle:hover {
+    background-color: var(--button-secondary-hover-bg);
 }
 
 /* === SPINNERS & ANIMATIONS === */
@@ -110,53 +549,97 @@ a:hover { text-decoration: underline; }
     100% { transform: rotate(360deg); }
 }
 
+/* Global spinner (if used elsewhere, e.g., htmx indicator) */
 #spinner {
     position: absolute; bottom: 0; left: 100%; margin-left: 10px;
     width: 30px; height: 30px; opacity: 0;
     transition: opacity 0.2s ease-in-out; z-index: 100;
-    box-sizing: border-box; border: 4px solid rgba(0, 0, 0, 0.1);
-    border-left-color: #1a73e8; border-radius: 50%;
+    box-sizing: border-box;
+    border: 4px solid var(--spinner-track-color);
+    border-left-color: var(--spinner-color);
+    border-radius: 50%;
 }
 #spinner.htmx-request {
     opacity: 1; animation: spinner-spin 1s linear infinite;
 }
 
 /* === BUTTONS === */
-.run-button-base {
-    min-width: 100px; 
-    background-color: #1a73e8 !important;
-    color: white !important; 
-    border: none; 
-    border-radius: 18px;
-    font-weight: 500; 
-    font-size: 15px; 
-    cursor: pointer; 
+
+/* Reset Button */
+.reset-button {
+    background-color: var(--button-secondary-bg);
+    color: var(--button-secondary-text-alt);
+    border: 1px solid var(--border-color);
+    padding: 8px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 500;
     height: 36px;
-    text-align: center; 
-    transition: background-color 0.2s; 
+    line-height: 20px;
+    transition: background-color 0.2s, color 0.2s;
+    display: inline-block;
+    box-shadow: 0 1px 3px var(--shadow-light); /* Adjusted shadow slightly */
+    position: relative;
+    /* z-index no longer needed with natural page flow */
+}
+
+.reset-button:hover {
+    background-color: var(--button-secondary-hover-bg);
+}
+
+.reset-button-container {
+    text-align: center;
+    margin: 10px auto 5px auto; /* Reduced top/bottom margins */
+    padding: 0; /* Remove padding if not needed */
+    width: 100%;
+    display: block;
+    overflow: visible;
+}
+
+/* Run/Stop Button */
+.run-button-base {
+    min-width: 100px;
+    background-color: var(--primary-accent) !important; /* Keep important if needed */
+    color: var(--primary-accent-text) !important; /* Keep important if needed */
+    border: none;
+    border-radius: 18px;
+    font-weight: 500;
+    font-size: 15px;
+    cursor: pointer;
+    height: 36px;
+    text-align: center;
+    transition: background-color 0.2s;
     box-sizing: border-box;
-    position: relative; 
-    display: inline-flex; 
+    position: absolute; /* Positioned within input-row */
+    right: 6px;
+    bottom: 8px;
+    transform: none;
+    display: inline-flex;
     align-items: center;
-    justify-content: center; 
-    vertical-align: middle; 
+    justify-content: center;
+    vertical-align: middle;
     overflow: hidden;
 }
 .run-button-base:hover {
-    background-color: #185abc !important;
+    background-color: var(--primary-accent-hover) !important; /* Keep important */
 }
 .button-inner-content {
-    display: inline-flex; 
-    align-items: center; 
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    width: 100%; 
-    height: 100%; 
-    gap: 6px; 
+    width: 100%;
+    height: 100%;
+    gap: 6px;
     padding: 0 12px;
 }
 .button-text { display: none; }
 .run-text { display: inline; }
-.button-icon { font-size: 1.1em; opacity: 1; transition: opacity 0.2s ease-in-out; }
+.button-icon { 
+    font-size: 1.1em; 
+    opacity: 1; 
+    transition: opacity 0.2s ease-in-out; 
+    color: var(--primary-accent-text);
+}
 .cmd-icon { display: inline; }
 
 .inline-spinner {
@@ -167,6 +650,8 @@ a:hover { text-decoration: underline; }
     box-sizing: border-box; 
     position: relative; 
     flex-shrink: 0;
+    border: 2px solid var(--spinner-track-color);
+    border-top-color: var(--spinner-color);
 }
 .spinner-square {
     position: absolute; 
@@ -174,7 +659,7 @@ a:hover { text-decoration: underline; }
     left: 50%; 
     width: 8px; 
     height: 8px;
-    background-color: white; 
+    background-color: var(--primary-accent-text); 
     transform: translate(-50%, -50%);
     display: block; 
     z-index: 1;
@@ -294,4 +779,54 @@ form.streaming .inline-spinner {
     .cmd-icon {
         display: none;
     }
+}
+
+/* Theme toggle button styles */
+.theme-toggle {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 20px;
+    color: var(--text-color);
+    z-index: 100;
+    opacity: 0.7;
+    transition: opacity 0.2s, transform 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: var(--bg-color-secondary);
+    box-shadow: 0 2px 5px var(--shadow-light);
+}
+
+.theme-toggle:hover {
+    opacity: 1;
+    transform: scale(1.05);
+}
+
+.theme-toggle:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--primary-accent);
+}
+
+.theme-icon {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
+}
+
+.sun-icon, .moon-icon, .system-icon {
+    display: none;
+}
+
+html[data-theme="light"] .sun-icon,
+html[data-theme="dark"] .moon-icon,
+html[data-theme="system"] .system-icon {
+    display: block;
 }
