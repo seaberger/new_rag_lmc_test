@@ -5,22 +5,21 @@ from fasthtml.common import *
 
 from fasthtml import FastHTML
 from fastapi import Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from monsterui.all import *
 import os
 import re
 import json
 import logging
-# asyncio removed as it's no longer needed for the simplified reset function
-# datetime removed as it's no longer needed
+import asyncio  # Add back for async streaming
 from uuid import uuid4
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 
 # Import chat engine functions
-from chat_engine import init_chat_engine, generate_response
+from chat_engine import init_chat_engine, generate_streaming_response
 
 # Create images directory if it doesn't exist
 images_dir = Path("./images")
@@ -341,10 +340,10 @@ async def get(request: Request):
 # Streaming endpoint
 @rt("/stream-message")
 async def stream_message(request: Request):
-    """Stream a response to a query"""
+    """Stream a response to a query using token-by-token streaming"""
     # ---> START DEBUG LOGGING <---
     request_id = str(uuid4())  # Unique ID for this specific request
-    logging.info(f"[{request_id}] ===> Received request for /stream-message")
+    logging.info(f"[{request_id}] ===> Received request for /stream-message (Streaming Mode)")
     logging.info(f"[{request_id}] Headers: {dict(request.headers)}")
     logging.info(f"[{request_id}] Query Params: {dict(request.query_params)}")
 
@@ -363,55 +362,51 @@ async def stream_message(request: Request):
     # ---> END DEBUG LOGGING <---
     
     if not query:
-        logging.warning(f"[{request_id}] Query is empty, returning 400.")
-        return Response("Query is required", status_code=400)
+        logging.warning(f"[{request_id}] Query is empty, returning error stream.")
+        async def error_stream_no_query():
+            yield json.dumps({"type": "error", "content": "Query is required."}) + "\n"
+            yield json.dumps({"type": "done", "content": ""}) + "\n"
+        return StreamingResponse(error_stream_no_query(), media_type="application/x-ndjson", status_code=400)
 
     if chat_engine is None:
-        logging.error(f"[{request_id}] Chat engine not available in app state, returning 503.")
-        return Response("Chat engine not available", status_code=503)
+        logging.error(f"[{request_id}] Chat engine not available in app state, returning error stream.")
+        async def error_stream_no_engine():
+            yield json.dumps({"type": "error", "content": "Chat engine not available."}) + "\n"
+            yield json.dumps({"type": "done", "content": ""}) + "\n"
+        return StreamingResponse(error_stream_no_engine(), media_type="application/x-ndjson", status_code=503)
 
-    # Process the response and format for the frontend
-    async def process_response():
+    # Define the event stream generator that calls the async streaming function
+    async def event_stream_generator() -> AsyncGenerator[str, None]:
         try:
-            # Get the instrumentor from app state to ensure proper trace isolation
-            langfuse_instrumentor = getattr(request.app.state, "langfuse_instrumentor", None)
-            logging.info(f"[{request_id}] Langfuse instrumentor in process_response: {id(langfuse_instrumentor) if langfuse_instrumentor else 'None'}")
-            
-            # Call response generation function
-            logging.info(f"[{request_id}] Calling generate_response function...")
-            response_data = await generate_response(query, chat_engine, instrumentor=langfuse_instrumentor)
-            logging.info(f"[{request_id}] Response generation successful.")
-            
-            # Format the response
-            if response_data.get("error", False):
-                return f"Error: {response_data.get('response', 'Unknown error')}\n[DONE]"
-            
-            # Get main response text
-            full_response = response_data.get('response', '')
-            
-            # Sources are tracked in Langfuse but not displayed to the user
-            # We keep the sources data in the response_data for tracing purposes, 
-            # but no longer append them to the displayed text
-            
-            # Return the response without a completion marker
-            return full_response
-
+            logging.info(f"[{request_id}] Calling generate_streaming_response...")
+            async for chunk_dict in generate_streaming_response(
+                query=query,
+                chat_engine=chat_engine,
+                instrumentor=instrumentor  # Pass instrumentor from app state
+            ):
+                yield json.dumps(chunk_dict) + "\n"  # Format as NDJSON line
+                await asyncio.sleep(0.005)  # Yield control briefly
+            logging.info(f"[{request_id}] Finished streaming response from generator.")
         except Exception as e:
-            logging.error(f"Error generating response: {e}", exc_info=True)
-            return f"Error processing your request: {str(e)}"
+            logging.error(f"[{request_id}] Error generating streaming event stream: {e}", exc_info=True)
+            try:
+                # Try to yield a final error message if the stream breaks
+                error_payload = {"type": "error", "content": f"Stream generation error: {e}"}
+                yield json.dumps(error_payload) + "\n"
+                done_payload = {"type": "done", "content": ""}
+                yield json.dumps(done_payload) + "\n"
+            except Exception as final_err:
+                logging.error(f"[{request_id}] Failed to yield final error message to stream: {final_err}")
 
-    # Get and return the complete response
-    try:
-        logging.info(f"[{request_id}] Calling process_response...")
-        result = await process_response()
-        logging.info(f"[{request_id}] Process response successful. Response length: {len(result)}")
-        return Response(
-            content=result,
-            media_type="text/plain",
-        )
-    except Exception as e:
-        logging.error(f"[{request_id}] Error in top-level handler: {e}", exc_info=True)
-        return Response(f"Server error: {str(e)}", status_code=500)
+    # Return the StreamingResponse with proper headers
+    logging.info(f"[{request_id}] Returning StreamingResponse with media_type application/x-ndjson.")
+    headers = {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive", # Useful for some proxy/server setups
+        "X-Accel-Buffering": "no", # Often needed for Nginx to disable buffering
+    }
+    return StreamingResponse(event_stream_generator(), media_type="application/x-ndjson", headers=headers)
 
 
 # Reset chat route - now async with more thorough state cleanup

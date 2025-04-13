@@ -7,13 +7,15 @@ import sqlite3
 import logging
 import os
 import uuid
+import asyncio
+import time
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, AsyncGenerator
 from dotenv import load_dotenv
 
 # Langfuse/LlamaIndex Integration
 from llama_index.core.callbacks import CallbackManager
-from langfuse.llama_index import LlamaIndexCallbackHandler
+# from langfuse.llama_index import LlamaIndexCallbackHandler  # Removed as not used
 from langfuse.llama_index import LlamaIndexInstrumentor
 
 # Global client reference
@@ -26,7 +28,7 @@ from llama_index.core import (
 )
 from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle
 from llama_index.core.chat_engine.types import (
-    BaseChatEngine,
+    BaseChatEngine, StreamingAgentChatResponse
 )
 from llama_index.core.chat_engine import ContextChatEngine
 from llama_index.llms.openai import OpenAI
@@ -459,25 +461,13 @@ def _init_settings():
         Settings.embed_model = embed_model
         logger.info(f"Using LLM: {LLM_MODEL}, Embed Model: {EMBED_MODEL}")
         
-        # --- Setup Langfuse Callback Handler ---
-        langfuse_callback_handler = None
-        if langfuse_secret_key and langfuse_public_key:
-            try:
-                langfuse_callback_handler = LlamaIndexCallbackHandler(
-                    public_key=langfuse_public_key,
-                    secret_key=langfuse_secret_key,
-                    host=langfuse_host,
-                    # session_id="my-chat-session-001" # Optional: Set a session ID
-                )
-                Settings.callback_manager = CallbackManager([langfuse_callback_handler])
-                logger.info("Langfuse LlamaIndexCallbackHandler initialized and set.")
-            except Exception as e:
-                logger.error(f"Failed to initialize Langfuse Callback Handler: {e}")
-        else:
-            logger.warning("Langfuse env variables not set. Callback handler disabled.")
-            Settings.callback_manager = CallbackManager([]) # Use empty manager on error
+        # Ensure callback_manager exists but is empty initially if needed elsewhere
+        # This is needed to prevent LlamaIndex from complaining about Settings.callback_manager being None
+        if not hasattr(Settings, "callback_manager") or Settings.callback_manager is None:
+            logger.info("Initializing empty Settings.callback_manager")
+            Settings.callback_manager = CallbackManager([])  # Initialize empty manager
 
-        logger.info("Settings initialized.")
+        logger.info("Settings initialized (LLM & Embed Model only).")
     except Exception as e:
         logger.error(f"Error initializing OpenAI models: {e}", exc_info=True)
         raise
@@ -1002,5 +992,115 @@ async def generate_response(
         # The flush after the observe block is sufficient and prevents timing issues
         logger.debug(f"generate_response completed for trace_id: {trace_id}")
 
+
+# --- ADD ASYNC STREAMING FUNCTION ---
+async def generate_streaming_response(
+    query: str,
+    chat_engine: BaseChatEngine,
+    instrumentor=None,
+    # chat_history: Optional[List] = None, # Add if needed later
+    # system_prompt: Optional[str] = None, # Add if needed later
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Generates a streaming response using astream_chat with Langfuse tracing."""
+
+    if not chat_engine:
+        logger.error("generate_streaming_response: Received None for chat_engine.")
+        yield {"type": "error", "content": "Chat engine not available."}
+        yield {"type": "done", "content": ""}
+        return
+
+    # Ensure instrumentor is available
+    if instrumentor is None:
+        instrumentor = globals().get('LANGFUSE_INSTRUMENTOR')
+        # ... (Add logging warnings if needed) ...
+
+    trace_id = f"stream-query-{uuid.uuid4()}"
+    trace_input = {"query": query}
+    full_response_text = ""
+    source_nodes_data = []
+
+    try:
+        logger.info(f"Starting ASYNC generation for trace_id: {trace_id}, Query: '{query[:50]}...'")
+
+        if instrumentor:
+            with instrumentor.observe(trace_id=trace_id,
+                                      metadata={"query_preview": query[:100], "streamed": True},
+                                      update_parent=False) as trace:
+                try:
+                    trace.update(input=trace_input)
+                    logger.info(f"Updated trace with input for {trace_id}")
+                except Exception as input_update_err:
+                    logger.error(f"Failed to update trace with input for {trace_id}: {input_update_err}")
+
+                logger.info(f"Calling chat_engine.astream_chat() within trace {trace_id}")
+                try:
+                    response_stream: StreamingAgentChatResponse = await chat_engine.astream_chat(query)
+                    logger.info(f"Got response stream object for trace {trace_id}")
+
+                    async for chunk in response_stream.async_response_gen():
+                        yield {"type": "content", "content": chunk}
+                        full_response_text += chunk
+                        await asyncio.sleep(0.005) # Prevent blocking event loop entirely
+
+                    logger.info(f"Finished iterating stream for trace {trace_id}. Full length: {len(full_response_text)}")
+
+                    # Get source nodes after stream
+                    if hasattr(response_stream, 'source_nodes'):
+                        source_nodes_data = [
+                             {"id": node.node.node_id, "score": node.score, "text_preview": node.node.get_content()[:100]}
+                             for node in response_stream.source_nodes
+                        ]
+                        logger.info(f"Captured {len(source_nodes_data)} source nodes for trace {trace_id}")
+                        yield {"type": "sources", "content": source_nodes_data}
+
+                except Exception as stream_err:
+                    logger.error(f"Error *during* astream_chat or iteration: {stream_err}", exc_info=True)
+                    yield {"type": "error", "content": f"Error during streaming: {stream_err}"}
+                    # Still attempt to update trace below
+
+                # Update Trace with Output and Final Metadata
+                trace_output = {"response": full_response_text}
+                trace_meta = {
+                    "query_preview": query[:100],
+                    "response_length": len(full_response_text),
+                    "llm_model": Settings.llm.metadata.model_name if Settings.llm else "unknown",
+                    "num_source_nodes": len(source_nodes_data),
+                    "streamed": True
+                 }
+                try:
+                    trace.update(output=trace_output, metadata=trace_meta)
+                    logger.info(f"Updated trace with output/metadata for {trace_id}")
+                except Exception as final_update_err:
+                     logger.error(f"Failed to update trace output/metadata for {trace_id}: {final_update_err}")
+
+            # Flush AFTER observe block
+            logger.info(f"Flushing instrumentor for trace_id: {trace_id}")
+            instrumentor.flush()
+            logger.info(f"Flush called for trace_id: {trace_id}")
+
+        else:
+             # --- No Instrumentor case (Streaming) ---
+             logger.warning(f"Executing astream_chat WITHOUT tracing for Query: '{query[:50]}...'")
+             try:
+                 response_stream = await chat_engine.astream_chat(query)
+                 async for chunk in response_stream.async_response_gen():
+                     yield {"type": "content", "content": chunk}
+                     await asyncio.sleep(0.005)
+                 # Handle sources if needed for non-traced version
+                 if hasattr(response_stream, 'source_nodes'):
+                     # ... yield sources ...
+                     pass
+
+             except Exception as e:
+                 logger.error(f"Error during non-traced streaming: {e}", exc_info=True)
+                 yield {"type": "error", "content": f"Error processing stream: {e}"}
+
+        # Signal completion
+        yield {"type": "done", "content": ""}
+
+    except Exception as e:
+        logger.error(f"Outer error during async streaming (Trace ID: {trace_id}): {e}", exc_info=True)
+        yield {"type": "error", "content": f"An unexpected error occurred: {str(e)}"}
+        yield {"type": "done", "content": ""} # Ensure done signal
 
 # --- END OF FILE chat_engine.py ---

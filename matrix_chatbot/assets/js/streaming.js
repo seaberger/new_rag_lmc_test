@@ -2,13 +2,58 @@
 let currentStreamTarget = null;
 let isNewStream = true;
 let accumulatedMarkdown = ""; // Add accumulator for raw text
+let sourceNodesData = []; // Store source nodes data if provided
 
 // --- Stream Initialization (Reset State) ---
 function startStream() {
     // Only reset state variables, target is created on first chunk
     isNewStream = false;
     accumulatedMarkdown = "";
+    sourceNodesData = [];
     console.log('Stream state reset.');
+}
+
+// --- Process a JSON chunk from the NDJSON stream ---
+function processStreamChunk(jsonChunk) {
+    // Parse the JSON data
+    try {
+        const data = JSON.parse(jsonChunk);
+        const chunkType = data.type;
+        const chunkContent = data.content;
+        
+        console.log(`Stream chunk received: type=${chunkType}, content length=${chunkContent ? chunkContent.length : 0}`);
+        
+        switch(chunkType) {
+            case "content":
+                // Append the text chunk to the message
+                appendToStream(chunkContent);
+                break;
+                
+            case "sources":
+                // Store source nodes data for potential display
+                sourceNodesData = chunkContent;
+                console.log("Source nodes received:", sourceNodesData.length);
+                break;
+                
+            case "error":
+                // Display error message
+                appendToStream(`\n\n<p class="error">Error: ${chunkContent}</p>`);
+                break;
+                
+            case "done":
+                // End the stream
+                console.log("Stream complete signal received.");
+                endStream();
+                break;
+                
+            default:
+                console.warn(`Unknown chunk type: ${chunkType}`);
+        }
+    } catch (err) {
+        console.error("Error processing stream chunk:", err);
+        console.error("Raw chunk:", jsonChunk);
+        appendToStream(`\n\n<p class="error">Error processing response.</p>`);
+    }
 }
 
 // --- Append Chunk to Stream ---
@@ -18,16 +63,6 @@ function appendToStream(chunk) {
         console.error('Stream not initialized or already ended');
         return;
     }
-
-    // Check for the [DONE] signal from the backend
-    // This is sent manually by the Python backend for the "done" type
-    if (chunk === '[DONE]') {
-        endStream();
-        return;
-    }
-    
-    // The backend now sends text chunks directly without JSON structure
-    // The formatting is handled server-side
 
     // --- First Chunk Logic: Create Bubble --- 
     if (currentStreamTarget === null) {
@@ -127,34 +162,34 @@ function endStream() {
     console.log('Stream processing complete and UI elements reset.');
 }
 
-// --- Read Chunks from Response Stream ---
-async function readChunks(response) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
+// --- Process JSON chunks from the NDJSON stream ---
+function processStreamChunk(jsonLine) {
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                console.log('Reader finished.');
-                // Ensure endStream is called IF it hasn't been already by a [DONE] marker
-                if (!isNewStream) {
-                    endStream(); 
-                }
-                break;
-            }
-            const chunk = decoder.decode(value, { stream: true });
-            // appendToStream handles the [DONE] marker internally now
-            appendToStream(chunk); 
+        // Parse the JSON line
+        const data = JSON.parse(jsonLine);
+        console.log('Received streaming chunk:', data);
+        
+        if (data.type === 'content') {
+            // This is a content chunk with actual text to display
+            appendToStream(data.content);
+        } else if (data.type === 'done') {
+            // This is the end of the stream
+            console.log('Stream complete - received done marker');
+            endStream();
+        } else if (data.type === 'error') {
+            // Handle any error messages from server
+            console.error('Server reported error:', data.error);
+            appendToStream(`\n\n<p class="error">Error: ${data.error}</p>`);
+            endStream();
         }
     } catch (error) {
-        console.error('Error reading stream:', error);
-        appendToStream(`\n\n<p class="error">Error reading stream response.</p>`);
-        if (!isNewStream) {
-           endStream(); // Ensure UI resets on read error
-        }
+        console.error('Error parsing JSON chunk:', error, 'Raw chunk:', jsonLine);
+        appendToStream(`\n\n<p class="error">Error parsing response</p>`);
+        endStream();
     }
 }
+
+// --- Connect to streaming when submit is clicked or Ctrl/Cmd+Enter is pressed ---
 
 // Connect to streaming when submit is clicked or Ctrl/Cmd+Enter is pressed
 document.addEventListener('DOMContentLoaded', () => {
@@ -315,7 +350,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // --- Start Streaming Request ---
             startStream(); // Reset stream state, doesn't create target anymore
-            fetch('/stream-message?query=' + encodeURIComponent(query))
+            
+            // Create a new fetch request to the server with the query
+            const fetchUrl = `/stream-message?query=${encodeURIComponent(query)}`;
+            
+            // Set up the streaming connection
+            fetch(fetchUrl)
                 .then(response => {
                     if (!response.ok) {
                         // Handle HTTP errors (e.g., 404, 500)
@@ -326,18 +366,62 @@ document.addEventListener('DOMContentLoaded', () => {
                            appendToStream(`\n\n<p class="error">Error: ${response.status} ${response.statusText}. Check server logs.</p>`);
                            endStream();
                         });
-                    } else {
-                        // Start reading the stream only if response is ok
-                        readChunks(response);
+                        return;
                     }
-                 })
-                 .catch(error => {
-                     console.error('Stream fetch/network error:', error);
-                     // Create bubble manually to show error
-                     appendToStream(''); // Trigger bubble creation if not already done
-                     appendToStream(`\n\n<p class="error">Network error: Could not connect.</p>`);
-                     endStream(); // Ensure UI resets on fetch error
-                 });
+                    
+                    // Set up incremental stream processing using ReadableStream
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = "";
+                    
+                    // Process the stream chunks
+                    function processStream() {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) {
+                                // Process any remaining data in buffer
+                                if (buffer.trim()) {
+                                    processStreamChunk(buffer.trim());
+                                }
+                                console.log("Stream fully read - reader done signal");
+                                return;
+                            }
+                            
+                            // Decode the chunk and add to buffer
+                            const chunk = decoder.decode(value, { stream: true });
+                            buffer += chunk;
+                            
+                            // Process complete NDJSON lines
+                            let newlineIndex;
+                            while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+                                // Extract a complete JSON line
+                                const jsonLine = buffer.substring(0, newlineIndex).trim();
+                                buffer = buffer.substring(newlineIndex + 1);
+                                
+                                // Process the JSON line if it's not empty
+                                if (jsonLine) {
+                                    processStreamChunk(jsonLine);
+                                }
+                            }
+                            
+                            // Continue reading
+                            return processStream();
+                        }).catch(error => {
+                            console.error('Stream reading error:', error);
+                            appendToStream(`\n\n<p class="error">Error reading stream: ${error.message}</p>`);
+                            endStream();
+                        });
+                    }
+                    
+                    // Start processing the stream
+                    return processStream();
+                })
+                .catch(error => {
+                    console.error('Stream fetch/network error:', error);
+                    // Create bubble manually to show error
+                    appendToStream(''); // Trigger bubble creation if not already done
+                    appendToStream(`\n\n<p class="error">Network error: Could not connect.</p>`);
+                    endStream(); // Ensure UI resets on fetch error
+                });
         });
 
         // --- Cmd/Ctrl+Enter Shortcut --- 
