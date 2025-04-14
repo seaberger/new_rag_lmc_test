@@ -44,7 +44,7 @@ logging.basicConfig(
 # --- Constants ---
 SUGGESTED_QUESTIONS_FILE_LOCAL = "./suggested_questions.json"
 SUGGESTED_QUESTIONS_FILE_PROD = "/app/suggested_questions.json"
-APP_VERSION = "1.0.0"  # Update this when you make significant changes
+APP_VERSION = "1.0.1"  # Incremented version for theme feature
 
 
 # --- Lifespan context manager for startup/shutdown ---
@@ -115,6 +115,7 @@ app, rt = fast_app(
         Script(src="/assets/js/ui.js"),
         Script(src="/assets/js/form.js"),
         Script(src="/assets/js/streaming.js"),
+        Script(src="/assets/js/theme-switcher.js"),
     ),
     lifespan=lifespan,
 )
@@ -124,10 +125,14 @@ app.mount("/assets", StaticFiles(directory="assets"), name="assets")
 
 
 def simple_message_html(content, role):
-    """Generate HTML string for a message without avatars"""
+    """Generate HTML string for a message using CSS classes."""
     is_user = role == "user"
+    role_class = "user" if is_user else "assistant"
+    
+    # Identify if this is the welcome message
+    is_welcome = role == "assistant" and "Welcome! How can I assist" in str(content)
 
-    # Message processing
+    # Process markdown for assistant messages
     if not is_user:
         # Process markdown for assistant messages
         cleaned_content = content  # Initialize cleaned_content first
@@ -144,25 +149,45 @@ def simple_message_html(content, role):
             )
         except Exception as e:
             logging.warning(f"Markdown failed: {e}.", exc_info=False)
-            content_html = f"<p>{content}</p>"
+            import html
+            content_html = f"<p>{html.escape(content)}</p>"
     else:
-        content_html = f"<p>{content}</p>"
+        # User message: Escape HTML and wrap in <p>
+        import html
+        content_html = f"<p>{html.escape(content)}</p>"
 
-    # Determine container alignment
-    container_margin = "margin-left: auto;" if not is_user else ""
-    # Optional extra style
-    bubble_extra_style = ""
+    # Return None or empty string if no content to display
+    if not content_html:
+        return ""
 
-    # Return the formatted message HTML
-    return f"""
-    <div style="display: flex; gap: 1rem; padding: 1rem; margin-bottom: 1rem; max-width: 85%; {container_margin}">
-        <div style="background-color: {"#f1f3f4" if not is_user else "white"}; padding: 12px 16px; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); flex-grow: 1;{bubble_extra_style}">
-            <div style="color: #202124; font-size: 15px; width: 100%; overflow-wrap: break-word;">
-                {content_html}
+    # Use CSS classes instead of inline styles
+    if role_class == "assistant":
+        # Add the special class for welcome message
+        container_extra_class = " welcome-message-container" if is_welcome else ""
+        # Add the atom icon for assistant messages
+        return f"""
+        <div class="message-container {role_class}{container_extra_class}">
+            <div class="atom-icon">
+                <img src="/images/coherent_atom_symbol.png" alt="Coherent" width="24" height="24">
+            </div>
+            <div class="message-bubble">
+                <div class="message-content">
+                    {content_html}
+                </div>
             </div>
         </div>
-    </div>
-    """
+        """
+    else:
+        # User message without icon
+        return f"""
+        <div class="message-container {role_class}">
+            <div class="message-bubble">
+                <div class="message-content">
+                    {content_html}
+                </div>
+            </div>
+        </div>
+        """
 
 
 # --- chat_interface function ---
@@ -217,7 +242,6 @@ async def chat_interface(request: Request):
         ),
         id="suggestions-container",
         cls="suggestions-collapsed",
-        style="padding: 0 1rem; text-align: center; margin-bottom: 15px; flex-shrink: 0;",
     )
 
     # --- Internal Title Block ---
@@ -243,7 +267,6 @@ async def chat_interface(request: Request):
                 )
             ),
             id="chat-messages",
-            style="flex: 1 1 auto; overflow-y: auto; padding: 0 15px; margin-bottom: 8px; border-radius: 8px;",
         ),
         # --- Bottom Fixed Section ---
         Div(  # Form and controls area
@@ -256,7 +279,6 @@ async def chat_interface(request: Request):
                         rows=1,
                         autofocus=True,
                         cls="auto-grow-textarea",
-                        style="width: 100%; box-sizing: border-box; padding: 14px 110px 14px 16px; font-size: 16px; color: #202124; border: 1px solid #dfe1e5; border-radius: 24px; resize: none; outline: none; box-shadow: none; margin: 0; overflow-y: hidden;",
                     ),
                     # --- Run/Stop Button ---
                     Button(
@@ -270,10 +292,9 @@ async def chat_interface(request: Request):
                         type="submit",
                         id="run-stop-button",
                         cls="run-button-base",
-                        style="position: absolute; right: 6px; bottom: 8px; transform: none; overflow: hidden;",
                         title="Submit query (⌘+⏎ or Ctrl+Enter)",
                     ),
-                    style="position: relative; display: block; margin-bottom: 10px; min-height: 52px;",
+                    cls="input-row",
                 ),  # End Input Row Div
                 # Use JavaScript-based streaming instead of HTMX
                 id="chat-form",
@@ -283,21 +304,13 @@ async def chat_interface(request: Request):
                     "Reset Chat",
                     id="reset-chat-button", # Use ID instead of HTMX attributes
                     # HTMX attributes removed - will use manual JavaScript handling
-                    style="background-color: #f1f3f4; color: #5f6368; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; font-weight: 500; height: 36px; line-height: 20px;",
+                    cls="reset-button",
                 ),
-                style="text-align: center; margin-bottom: 10px;",
+                cls="reset-button-container",
             ),  # End Reset Div
-            style="flex-shrink: 0; padding-top: 6px; border-top: 1px solid #f0f0f0;",
+            id="chat-form-area",
         ),  # End Form/Controls Area Div
-        # --- Style for the main chat container itself ---
-        style=(
-            "max-width: 900px; margin: 0 auto 20px auto;"
-            " padding: 20px; background-color: white; border-radius: 12px;"
-            " box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
-            " display: flex; flex-direction: column;"
-            " flex: 1 1 auto;"
-            " overflow: hidden;"
-        ),
+        # Use ID instead of inline styles for the main chat container
         id="chat-container",
     )
 
@@ -317,6 +330,38 @@ async def get_image(filename: str):
 
 @rt("/")
 async def get(request: Request):
+    # --- Header Controls Component ---
+    header_controls = Div(
+        # Theme toggle button
+        Button(
+            "🌓",  # Moon/sun emoji as a simple toggle icon
+            id="theme-toggle", 
+            cls="theme-toggle icon-button", 
+            title="Toggle Light/Dark Theme"
+        ),
+        # Menu toggle button (hamburger)
+        Button(
+            Span(cls="hamburger-bar"),
+            Span(cls="hamburger-bar"),
+            Span(cls="hamburger-bar"),
+            id="menu-toggle",
+            cls="menu-toggle icon-button",
+            title="Open Menu"
+        ),
+        # The Dropdown Menu (hidden by default)
+        Nav(
+            Ul(
+                Li(A("System Theme", href="#", cls="theme-menu-item", data_theme_value="system")),
+                Li(A("Light Theme", href="#", cls="theme-menu-item", data_theme_value="light")),
+                Li(A("Dark Theme", href="#", cls="theme-menu-item", data_theme_value="dark")),
+                # Future menu items can be added here
+            ),
+            id="settings-menu",
+            cls="settings-menu hidden" # Start hidden
+        ),
+        cls="header-controls" # Class for the right-side group
+    )
+
     return Titled(
         "Matrix Laser Technical Support",  # Browser tab title
         Div(
@@ -327,12 +372,15 @@ async def get(request: Request):
                     alt="Coherent Logo",
                     cls="header-logo",
                 ),
+                header_controls,  # Add the header controls here
                 cls="logo-container",
             ),
             # --- 2. Chat Interface Section ---
             await chat_interface(request=request),
-            # Style for the main page container
-            style="display: flex; flex-direction: column; height: 100dvh; background-color: #f8f9fa; overflow: hidden;",
+            # Theme toggle now moved to header_controls
+            id="main-content-area",
+            # Use CSS variables for styling
+            style="display: flex; flex-direction: column; height: 100dvh; background-color: var(--bg-color); overflow: hidden;",
         ),
     )
 

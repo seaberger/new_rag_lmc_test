@@ -163,7 +163,7 @@ body {
     flex-direction: column;
     
     /* Constrain Max Height - Allows Page Scroll if Exceeded */
-    max-height: calc(100vh - 120px); /* Reduced maximum height to prevent reset button clipping */
+    max-height: calc(100vh - 55px - 65px); /* viewport height minus header (55px) minus buffer (65px) */
     height: auto; /* Let height grow up to max-height */
     
     transition: background-color 0.2s, box-shadow 0.2s;
@@ -220,23 +220,40 @@ body {
     border-radius: 18px;
     box-shadow: 0 1px 1px var(--bubble-shadow);
     transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, border-color 0.2s;
-    /* Removed display: inline-block & width: auto */
     border: 1px solid transparent;
-    overflow: hidden; /* Still needed for complex content */
-    box-sizing: border-box;
+    /* General properties moved to specific implementations */
 }
 
 .message-container.assistant .message-bubble {
+    /* Basic Styling */
     background-color: var(--bubble-bg-assistant);
     color: var(--bubble-text-assistant);
-    border-top-left-radius: 6px;
+    padding: 10px 15px; /* Keep padding */
+    border-radius: 18px; /* Keep radius */
+    border-top-left-radius: 6px; /* Keep specific radius */
+    box-shadow: 0 1px 1px var(--bubble-shadow);
+    border: 1px solid transparent;
+
+    /* Sizing & Box Model */
+    max-width: 85%;
+    width: auto; /* Allow natural width based on content */
+    height: min-content; /* Explicitly tell height to fit content */
+    box-sizing: border-box; /* Padding included in size */
+    overflow: hidden; /* Prevent content spillover */
+
+    /* Flex item properties (within the row) */
+    flex-grow: 0; /* Do not grow */
+    flex-shrink: 1; /* Allow shrinking if needed */
+    flex-basis: auto; /* Default */
+    align-self: flex-start; /* Re-affirm alignment */
+    
+    /* Transition */
     transition: background-color 0.2s, color 0.2s;
-    /* Removed margin-left since we're using gap in the container */
 }
 
 .message-container.assistant {
     display: flex; /* Keep as flex container */
-    align-items: flex-start; /* Align items to the top */
+    align-items: flex-start !important; /* Force alignment to top */
     gap: 8px; /* Space between icon and bubble */
     margin: 10px 0;
     /* Removed position: relative and padding-left */
@@ -331,16 +348,32 @@ html[data-theme="dark"] .title-block {
 }
 
 .message-content p {
-    margin-top: 0;
-    margin-bottom: 0;
-    line-height: 1.2; /* Tighter line height for paragraph text */
+    margin: 0; /* Removes top/bottom margin */
+    padding: 0; /* Remove browser default padding */
+    line-height: 1.5; /* Standard line height for better readability */
 }
-/* Add these to handle markdown paragraphs better */
+
+/* No need for these with margin: 0 above */
+/* 
 .message-content p:first-child {
     margin-top: 0;
 }
 .message-content p:last-child {
     margin-bottom: 0;
+}
+*/
+
+/* --- Welcome Message Bubble Specific Overrides --- */
+/* Keep standard assistant bubble styles and override only what's needed */
+.welcome-message-container .message-bubble {
+    height: min-content !important; /* Force height based on content */
+    min-height: unset !important; /* Reset min-height if suspecting inheritance */
+}
+
+/* Ensure inner P has no padding/margin */
+.message-content p {
+    margin: 0;
+    padding: 0;
 }
 
 /* Temporary debug borders to diagnose welcome bubble height issues */
@@ -457,12 +490,99 @@ a:hover { text-decoration: underline; }
     align-items: center;
     flex-shrink: 0;
     /* margin-bottom: 10px; REMOVED - handled by flex layout */
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 .header-logo {
     height: 35px;
     width: auto;
     display: inline-block; /* Changed from inline-block to block or flex item */
     vertical-align: middle;
+}
+
+/* --- Header Controls --- */
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px; /* Space between moon and menu icons */
+    position: relative; /* For dropdown positioning */
+}
+
+.icon-button { /* Common style for moon and menu */
+    background: none;
+    border: none;
+    padding: 5px;
+    cursor: pointer;
+    font-size: 1.5rem; /* Adjust size */
+    color: var(--text-secondary-color);
+    line-height: 1; /* Prevent extra vertical space */
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.icon-button:hover {
+    background-color: var(--button-secondary-hover-bg); /* Use a subtle hover */
+}
+
+/* Hamburger Menu Toggle */
+.menu-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 4px; /* Space between bars */
+    width: 24px; /* Adjust size */
+    height: 24px; /* Adjust size */
+    justify-content: center; /* Center bars vertically */
+}
+
+.hamburger-bar {
+    display: block;
+    height: 2px; /* Bar thickness */
+    width: 100%;
+    background-color: var(--text-secondary-color);
+    border-radius: 1px;
+}
+
+/* Settings Dropdown Menu */
+.settings-menu {
+    display: none; /* Hidden by default */
+    position: absolute;
+    top: 100%; /* Position below the header */
+    right: 0; /* Align to the right */
+    background-color: var(--card-bg); /* Use card background */
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px var(--card-shadow);
+    min-width: 150px;
+    z-index: 1010; /* Ensure it's above other content */
+    margin-top: 5px; /* Small gap from header */
+}
+
+.settings-menu.visible { /* Class added by JS to show */
+    display: block;
+}
+
+.settings-menu ul {
+    list-style: none;
+    margin: 0;
+    padding: 5px 0; /* Padding inside menu */
+}
+
+.settings-menu li a {
+    display: block;
+    padding: 8px 15px;
+    color: var(--text-color);
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.settings-menu li a:hover {
+    background-color: var(--button-secondary-hover-bg); /* Hover effect */
+}
+
+.settings-menu li a.active-theme { 
+    font-weight: bold; 
 }
 
 /* === TITLE AND SUGGESTIONS === */
