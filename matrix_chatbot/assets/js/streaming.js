@@ -76,11 +76,15 @@ function appendToStream(chunk) {
         const assistantMessageId = `assistant-msg-${Date.now()}`;
         const assistantBubbleId = `assistant-bubble-${assistantMessageId}`; // ID for the outer bubble div
         const streamContentId = `stream-content-${assistantMessageId}`; // ID for the inner content div
+        // Create a message container with appropriate CSS classes, avoiding inline styles
+        // Include the atom icon for assistant messages - positioned outside the bubble
         const assistantMessageHtml = `
-            <div id="${assistantBubbleId}" style="display: flex; gap: 1rem; padding: 1rem; margin-bottom: 1rem; max-width: 85%; margin-right: auto;">
-                <img src="/images/coherent_atom_symbol.png" alt="AI" style="width: 32px; height: 32px; border-radius: 50%; align-self: flex-start;">
-                <div style="background-color: #f1f3f4; padding: 12px 16px; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); flex-grow: 1;">
-                    <div style="color: #202124; font-size: 15px; width: 100%; overflow-wrap: break-word; white-space: pre-wrap;" id="${streamContentId}"></div>
+            <div id="${assistantBubbleId}" class="message-container assistant">
+                <div class="atom-icon">
+                    <img src="/images/coherent_atom_symbol.png" alt="Coherent" width="24" height="24">
+                </div>
+                <div class="message-bubble">
+                    <div class="message-content" id="${streamContentId}"></div>
                 </div>
             </div>`;
         chatMessages.insertAdjacentHTML('beforeend', assistantMessageHtml);
@@ -335,11 +339,11 @@ document.addEventListener('DOMContentLoaded', () => {
             chatForm.classList.add('streaming'); // Add class for button style
             // if (loadingIndicator) loadingIndicator.style.display = 'inline-block';
 
-            // --- Create User Message Bubble ---
+            // --- Create User Message Bubble with CSS classes, avoiding inline styles ---
             const userMessageHtml = `
-                <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-                    <div style="max-width: 75%; background-color: #d1e7ff; color: #0d6efd; padding: 10px 15px; border-radius: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); order: 1; margin-left: auto;">
-                        <div style="white-space: pre-wrap; word-wrap: break-word;">${query.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                <div class="message-container user">
+                    <div class="message-bubble">
+                        <div class="message-content">${query.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
                     </div>
                 </div>`;
             chatMessages.insertAdjacentHTML('beforeend', userMessageHtml);
