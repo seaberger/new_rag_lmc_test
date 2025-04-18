@@ -108,16 +108,30 @@ async def lifespan(app: FastHTML):
 
 
 # --- Initialize FastHTML app ---
-app, rt = fast_app(
-    hdrs=(
-        favicon_link,
-        Link(rel="stylesheet", href="/assets/css/main.css"),
-        Script(src="/assets/js/ui.js"),
-        Script(src="/assets/js/form.js"),
-        Script(src="/assets/js/streaming.js"),
-        Script(src="/assets/js/theme-switcher.js"),
-    ),
+# app, rt = fast_app(
+#     hdrs=(
+#         favicon_link,
+#         Link(rel="stylesheet", href="/assets/css/main.css"),
+#         Script(src="/assets/js/ui.js"),
+#         Script(src="/assets/js/form.js"),
+#         Script(src="/assets/js/streaming.js"),
+#         Script(src="/assets/js/theme-switcher.js"),
+#     ),
+#     lifespan=lifespan,
+# )
+mui_hdrs = Theme.blue.headers()  # Or your chosen theme
+app_hdrs = [
+    favicon_link,
+    Link(rel="stylesheet", href="/assets/css/main.css"),  # Load AFTER mui_hdrs
+    Script(src="/assets/js/ui.js"),
+    Script(src="/assets/js/form.js"),
+    Script(src="/assets/js/streaming.js"),
+    Script(src="/assets/js/theme-switcher.js"),
+]
+app, rt = fast_app(  # noqa: F405
+    hdrs=list(mui_hdrs) + list(app_hdrs),  # Combine headers, MonsterUI first
     lifespan=lifespan,
+    # Keep htmlkw/bodykw if they were in your original working version
 )
 
 # Mount static files directory after app is created
@@ -128,7 +142,7 @@ def simple_message_html(content, role):
     """Generate HTML string for a message using CSS classes."""
     is_user = role == "user"
     role_class = "user" if is_user else "assistant"
-    
+
     # Identify if this is the welcome message
     is_welcome = role == "assistant" and "Welcome! How can I assist" in str(content)
 
@@ -150,10 +164,12 @@ def simple_message_html(content, role):
         except Exception as e:
             logging.warning(f"Markdown failed: {e}.", exc_info=False)
             import html
+
             content_html = f"<p>{html.escape(content)}</p>"
     else:
         # User message: Escape HTML and wrap in <p>
         import html
+
         content_html = f"<p>{html.escape(content)}</p>"
 
     # Return None or empty string if no content to display
@@ -302,7 +318,7 @@ async def chat_interface(request: Request):
             Div(  # Reset button container
                 Button(
                     "Reset Chat",
-                    id="reset-chat-button", # Use ID instead of HTMX attributes
+                    id="reset-chat-button",  # Use ID instead of HTMX attributes
                     # HTMX attributes removed - will use manual JavaScript handling
                     cls="reset-button",
                 ),
@@ -335,9 +351,9 @@ async def get(request: Request):
         # Theme toggle button
         Button(
             "🌓",  # Moon/sun emoji as a simple toggle icon
-            id="theme-toggle", 
-            cls="theme-toggle icon-button", 
-            title="Toggle Light/Dark Theme"
+            id="theme-toggle",
+            cls="theme-toggle icon-button",
+            title="Toggle Light/Dark Theme",
         ),
         # Menu toggle button (hamburger)
         Button(
@@ -346,20 +362,41 @@ async def get(request: Request):
             Span(cls="hamburger-bar"),
             id="menu-toggle",
             cls="menu-toggle icon-button",
-            title="Open Menu"
+            title="Open Menu",
         ),
         # The Dropdown Menu (hidden by default)
         Nav(
             Ul(
-                Li(A("System Theme", href="#", cls="theme-menu-item", data_theme_value="system")),
-                Li(A("Light Theme", href="#", cls="theme-menu-item", data_theme_value="light")),
-                Li(A("Dark Theme", href="#", cls="theme-menu-item", data_theme_value="dark")),
+                Li(
+                    A(
+                        "System Theme",
+                        href="#",
+                        cls="theme-menu-item",
+                        data_theme_value="system",
+                    )
+                ),
+                Li(
+                    A(
+                        "Light Theme",
+                        href="#",
+                        cls="theme-menu-item",
+                        data_theme_value="light",
+                    )
+                ),
+                Li(
+                    A(
+                        "Dark Theme",
+                        href="#",
+                        cls="theme-menu-item",
+                        data_theme_value="dark",
+                    )
+                ),
                 # Future menu items can be added here
             ),
             id="settings-menu",
-            cls="settings-menu hidden" # Start hidden
+            cls="settings-menu hidden",  # Start hidden
         ),
-        cls="header-controls" # Class for the right-side group
+        cls="header-controls",  # Class for the right-side group
     )
 
     return Titled(
@@ -391,7 +428,9 @@ async def stream_message(request: Request):
     """Stream a response to a query using token-by-token streaming"""
     # ---> START DEBUG LOGGING <---
     request_id = str(uuid4())  # Unique ID for this specific request
-    logging.info(f"[{request_id}] ===> Received request for /stream-message (Streaming Mode)")
+    logging.info(
+        f"[{request_id}] ===> Received request for /stream-message (Streaming Mode)"
+    )
     logging.info(f"[{request_id}] Headers: {dict(request.headers)}")
     logging.info(f"[{request_id}] Query Params: {dict(request.query_params)}")
 
@@ -404,24 +443,41 @@ async def stream_message(request: Request):
     session_id = getattr(request.app.state, "session_id", "UNKNOWN")
 
     logging.info(f"[{request_id}] App State Check:")
-    logging.info(f"[{request_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
-    logging.info(f"[{request_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(
+        f"[{request_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}"
+    )
+    logging.info(
+        f"[{request_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}"
+    )
     logging.info(f"[{request_id}]   Current Session ID: {session_id}")
     # ---> END DEBUG LOGGING <---
-    
+
     if not query:
         logging.warning(f"[{request_id}] Query is empty, returning error stream.")
+
         async def error_stream_no_query():
             yield json.dumps({"type": "error", "content": "Query is required."}) + "\n"
             yield json.dumps({"type": "done", "content": ""}) + "\n"
-        return StreamingResponse(error_stream_no_query(), media_type="application/x-ndjson", status_code=400)
+
+        return StreamingResponse(
+            error_stream_no_query(), media_type="application/x-ndjson", status_code=400
+        )
 
     if chat_engine is None:
-        logging.error(f"[{request_id}] Chat engine not available in app state, returning error stream.")
+        logging.error(
+            f"[{request_id}] Chat engine not available in app state, returning error stream."
+        )
+
         async def error_stream_no_engine():
-            yield json.dumps({"type": "error", "content": "Chat engine not available."}) + "\n"
+            yield (
+                json.dumps({"type": "error", "content": "Chat engine not available."})
+                + "\n"
+            )
             yield json.dumps({"type": "done", "content": ""}) + "\n"
-        return StreamingResponse(error_stream_no_engine(), media_type="application/x-ndjson", status_code=503)
+
+        return StreamingResponse(
+            error_stream_no_engine(), media_type="application/x-ndjson", status_code=503
+        )
 
     # Define the event stream generator that calls the async streaming function
     async def event_stream_generator() -> AsyncGenerator[str, None]:
@@ -430,31 +486,43 @@ async def stream_message(request: Request):
             async for chunk_dict in generate_streaming_response(
                 query=query,
                 chat_engine=chat_engine,
-                instrumentor=instrumentor  # Pass instrumentor from app state
+                instrumentor=instrumentor,  # Pass instrumentor from app state
             ):
                 yield json.dumps(chunk_dict) + "\n"  # Format as NDJSON line
                 await asyncio.sleep(0.005)  # Yield control briefly
             logging.info(f"[{request_id}] Finished streaming response from generator.")
         except Exception as e:
-            logging.error(f"[{request_id}] Error generating streaming event stream: {e}", exc_info=True)
+            logging.error(
+                f"[{request_id}] Error generating streaming event stream: {e}",
+                exc_info=True,
+            )
             try:
                 # Try to yield a final error message if the stream breaks
-                error_payload = {"type": "error", "content": f"Stream generation error: {e}"}
+                error_payload = {
+                    "type": "error",
+                    "content": f"Stream generation error: {e}",
+                }
                 yield json.dumps(error_payload) + "\n"
                 done_payload = {"type": "done", "content": ""}
                 yield json.dumps(done_payload) + "\n"
             except Exception as final_err:
-                logging.error(f"[{request_id}] Failed to yield final error message to stream: {final_err}")
+                logging.error(
+                    f"[{request_id}] Failed to yield final error message to stream: {final_err}"
+                )
 
     # Return the StreamingResponse with proper headers
-    logging.info(f"[{request_id}] Returning StreamingResponse with media_type application/x-ndjson.")
+    logging.info(
+        f"[{request_id}] Returning StreamingResponse with media_type application/x-ndjson."
+    )
     headers = {
         "Content-Type": "application/x-ndjson",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive", # Useful for some proxy/server setups
-        "X-Accel-Buffering": "no", # Often needed for Nginx to disable buffering
+        "Connection": "keep-alive",  # Useful for some proxy/server setups
+        "X-Accel-Buffering": "no",  # Often needed for Nginx to disable buffering
     }
-    return StreamingResponse(event_stream_generator(), media_type="application/x-ndjson", headers=headers)
+    return StreamingResponse(
+        event_stream_generator(), media_type="application/x-ndjson", headers=headers
+    )
 
 
 # Reset chat route - now async with more thorough state cleanup
@@ -464,15 +532,19 @@ async def reset_chat(request: Request):
     reset_id = str(uuid4())  # Unique ID for this specific reset operation
     logging.info(f"[{reset_id}] ===> Received request for /reset-chat")
     logging.info(f"[{reset_id}] Headers: {dict(request.headers)}")
-    
+
     # Log initial app state
     chat_engine = getattr(request.app.state, "chat_engine", None)
     instrumentor = getattr(request.app.state, "langfuse_instrumentor", None)
     previous_session_id = getattr(request.app.state, "session_id", "UNKNOWN")
-    
+
     logging.info(f"[{reset_id}] Initial App State Before Reset:")
-    logging.info(f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
-    logging.info(f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(
+        f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}"
+    )
+    logging.info(
+        f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}"
+    )
     logging.info(f"[{reset_id}]   Current Session ID: {previous_session_id}")
     # ---> END DEBUG LOGGING <---
 
@@ -483,7 +555,7 @@ async def reset_chat(request: Request):
     if chat_engine:
         try:
             logging.info(f"[{reset_id}] Resetting chat engine memory...")
-            
+
             # Log the type of reset we're doing (async or sync)
             if hasattr(chat_engine, "areset"):
                 logging.info(f"[{reset_id}] Using async reset (areset)")
@@ -491,11 +563,13 @@ async def reset_chat(request: Request):
             else:
                 logging.info(f"[{reset_id}] Using sync reset (reset)")
                 chat_engine.reset()
-                
+
             logging.info(f"[{reset_id}] Chat engine memory reset successfully.")
             engine_reset = True
         except Exception as e:
-            logging.error(f"[{reset_id}] Error resetting chat engine: {e}", exc_info=True)
+            logging.error(
+                f"[{reset_id}] Error resetting chat engine: {e}", exc_info=True
+            )
     else:
         logging.warning(f"[{reset_id}] Reset attempted, but chat engine not available.")
 
@@ -512,41 +586,58 @@ async def reset_chat(request: Request):
             else:
                 logging.warning(f"[{reset_id}] Instrumentor has no flush method!")
         except Exception as e:
-            logging.error(f"[{reset_id}] Error flushing Langfuse instrumentor during reset: {e}", exc_info=True)
+            logging.error(
+                f"[{reset_id}] Error flushing Langfuse instrumentor during reset: {e}",
+                exc_info=True,
+            )
     else:
-        logging.warning(f"[{reset_id}] Reset attempted, but Langfuse instrumentor not available.")
+        logging.warning(
+            f"[{reset_id}] Reset attempted, but Langfuse instrumentor not available."
+        )
 
     # Update session ID regardless to get a fresh trace context for future operations
     new_session_id = f"session-{uuid4()}"
     request.app.state.session_id = new_session_id
-    logging.info(f"[{reset_id}] Session ID changed from {previous_session_id} to {new_session_id}")
-    
+    logging.info(
+        f"[{reset_id}] Session ID changed from {previous_session_id} to {new_session_id}"
+    )
+
     # Reset any pending state flags
     if hasattr(request.app.state, "processing_query"):
         old_value = request.app.state.processing_query
         request.app.state.processing_query = False
-        logging.info(f"[{reset_id}] Reset processing_query flag from {old_value} to False")
+        logging.info(
+            f"[{reset_id}] Reset processing_query flag from {old_value} to False"
+        )
     else:
         logging.info(f"[{reset_id}] No processing_query flag found in app state")
-        
+
     # Log final app state after reset
     logging.info(f"[{reset_id}] Final App State After Reset:")
-    logging.info(f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}")
-    logging.info(f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}")
+    logging.info(
+        f"[{reset_id}]   Chat Engine Instance: {id(chat_engine) if chat_engine else 'None'}"
+    )
+    logging.info(
+        f"[{reset_id}]   Instrumentor Instance: {id(instrumentor) if instrumentor else 'None'}"
+    )
     logging.info(f"[{reset_id}]   New Session ID: {new_session_id}")
 
     # Base success primarily on the engine reset status
 
-    logging.info(f"[{reset_id}] Reset completed - Engine Reset: {engine_reset}, Trace Reset: {trace_reset}, New Session: {new_session_id}")
+    logging.info(
+        f"[{reset_id}] Reset completed - Engine Reset: {engine_reset}, Trace Reset: {trace_reset}, New Session: {new_session_id}"
+    )
 
     # Redirect to force clean page load
     # Use 303 See Other with HX-Refresh to ensure HTMX triggers a full page reload
     from starlette.responses import RedirectResponse
-    
+
     # Create headers with HX-Refresh to instruct HTMX to refresh the page
     headers = {"HX-Refresh": "true"}
-    
-    logging.info(f"[{reset_id}] Sending 303 Redirect with HX-Refresh header to force HTMX to reload the page")
+
+    logging.info(
+        f"[{reset_id}] Sending 303 Redirect with HX-Refresh header to force HTMX to reload the page"
+    )
     return RedirectResponse(url="/", status_code=303, headers=headers)
 
 
